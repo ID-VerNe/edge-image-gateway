@@ -6,6 +6,9 @@ export interface Bindings {
   CACHE_TTL_SECONDS: string;
   ENABLE_SIGNATURE: string;
   RATE_LIMIT_PER_MIN: string;
+  APP_TITLE: string;
+  APP_DESCRIPTION: string;
+  EMERGENCY_LOCKDOWN: string; // "true" or "false"
 
   // Secrets
   GITHUB_TOKEN: string;

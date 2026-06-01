@@ -23,7 +23,6 @@ app.get('/healthz', (c) => {
 
 // Apply global middlewares
 app.use('/*', rateLimitGuard);
-app.use('/*', refererGuard);
 app.use('/*', signatureGuard);
 
 // Main image routing

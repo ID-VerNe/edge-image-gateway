@@ -1,0 +1,27 @@
+name = "picbed-cf-github"
+main = "src/index.ts"
+compatibility_date = "2024-05-31"
+
+[vars]
+# 核心仓库配置
+GITHUB_USER = "YOUR_GITHUB_USERNAME"
+GITHUB_REPO = "YOUR_STORAGE_REPO_NAME"
+GITHUB_BRANCH = "main"
+
+# 页面展示配置
+APP_TITLE = "My Private Picbed"
+APP_DESCRIPTION = "Ready to serve images from private storage."
+
+# 安全与性能
+ALLOWED_REFERERS = "" 
+CACHE_TTL_SECONDS = "604800"
+ENABLE_SIGNATURE = "false"
+RATE_LIMIT_PER_MIN = "120"
+
+[env.preview]
+name = "img-proxy-preview"
+vars = { ALLOWED_REFERERS = "preview.yourdomain.com" }
+
+[env.production]
+name = "img-proxy"
+# routes = [{ pattern = "your-custom-domain.com/*", custom_domain = true }]

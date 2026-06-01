@@ -3,30 +3,64 @@ import { AppEnvironment } from '../types/env';
 import { fetchFromGitHub } from '../services/github';
 import { getMimeType } from '../utils/mime';
 import { logger } from '../utils/logger';
+import { generateHMAC } from '../utils/hmac';
 
 export const handleImageRequest = async (c: Context<AppEnvironment>) => {
   const reqUrl = new URL(c.req.url);
-  // Normalize path: remove leading slashes, avoid directory traversal
+  // Normalize path
   let path = reqUrl.pathname.replace(/^\/+/, '');
+  
+  // 1. Handle root path
+  if (!path) {
+    const title = c.env.APP_TITLE || 'Private Picbed';
+    const desc = c.env.APP_DESCRIPTION || 'Ready to serve images.';
+    return c.html(`
+      <html>
+        <head><title>${title}</title></head>
+        <body style="font-family: sans-serif; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0;">
+          <div style="text-align: center;">
+            <h1>🖼️ ${title}</h1>
+            <p>${desc}</p>
+          </div>
+        </body>
+      </html>
+    `);
+  }
+
   if (path.includes('..')) {
     return c.text('Bad Request', 400);
   }
 
-  // Parse image transformation parameters
+  // 2. Check for Internal Loopback (to bypass resizing proxy header loss)
+  const isInternal = reqUrl.searchParams.get('__internal_loopback') === 'true';
+  const internalSig = reqUrl.searchParams.get('__sig');
+
+  if (isInternal && internalSig) {
+    // Verify internal signature to prevent abuse
+    const expectedSig = await generateHMAC(path, c.env.SIGN_SECRET);
+    if (internalSig === expectedSig) {
+      const resp = await fetchFromGitHub(path, c.env);
+      const newResp = new Response(resp.body, resp);
+      newResp.headers.set('Content-Type', getMimeType(path));
+      newResp.headers.delete('Content-Disposition');
+      return newResp;
+    }
+  }
+
+  // 3. Normal Request Logic
   const width = reqUrl.searchParams.get('w');
   const height = reqUrl.searchParams.get('h');
   const quality = reqUrl.searchParams.get('q');
   const fit = reqUrl.searchParams.get('fit') as any;
   const isImage = /\.(jpg|jpeg|png|webp|avif|gif|svg)$/i.test(path);
 
-  // Determine cache key - must include query params if transformation is applied
+  // Determine cache key
   const cacheKey = new Request(reqUrl.toString(), { method: 'GET' });
   const cache = caches.default;
 
   const startTime = Date.now();
 
   try {
-    // 1. Try to get from Cache
     const cachedResponse = await cache.match(cacheKey);
     if (cachedResponse) {
       logger.info('cache_hit', { path, ms: Date.now() - startTime });
@@ -35,60 +69,79 @@ export const handleImageRequest = async (c: Context<AppEnvironment>) => {
       return newResponse;
     }
 
-    // Prepare Cloudflare transformation options
-    let cfOptions: RequestInitCfProperties | undefined = undefined;
+    let finalResponse: Response;
+
+    // 4. If resizing is needed for a PRIVATE repo, we must use a loopback URL
     if (isImage && (width || height || quality || fit)) {
-      cfOptions = {
+      const sig = await generateHMAC(path, c.env.SIGN_SECRET);
+      const loopbackUrl = new URL(c.req.url);
+      loopbackUrl.search = ''; // Clear original params
+      loopbackUrl.searchParams.set('__internal_loopback', 'true');
+      loopbackUrl.searchParams.set('__sig', sig);
+
+      const cfOptions: RequestInitCfProperties = {
         image: {
           width: width ? parseInt(width, 10) : undefined,
           height: height ? parseInt(height, 10) : undefined,
           quality: quality ? parseInt(quality, 10) : undefined,
           fit: fit || 'cover',
-          format: 'auto', // Format negotiation
+          format: 'auto',
         }
       };
+
+      // Fetch "self" - the resizing proxy will now call our Worker back
+      finalResponse = await fetch(loopbackUrl.toString(), { cf: cfOptions });
+      
+      // If loopback fails (e.g. 415/400 because plan doesn't support it), fallback to original
+      if (finalResponse.status === 415 || finalResponse.status === 400) {
+        finalResponse = await fetchFromGitHub(path, c.env);
+      }
+    } else {
+      finalResponse = await fetchFromGitHub(path, c.env);
     }
 
-    // 2. Fetch from Origin (GitHub)
-    const githubResponse = await fetchFromGitHub(path, c.env, cfOptions);
-    
-    // 3. Handle errors and caching strategies
-    const status = githubResponse.status;
+    // 5. Handle errors and caching strategies
+    const status = finalResponse.status;
     let ttl = 0;
 
     if (status === 200) {
       ttl = parseInt(c.env.CACHE_TTL_SECONDS || '604800', 10);
     } else if (status === 404) {
-      ttl = 60; // Short cache for 404
+      ttl = 60;
     } else if (status === 401 || status === 403) {
-      logger.error('github_auth_error', { status, path });
-      return c.text('Bad Gateway: GitHub Auth Error', 502);
-    } else if (status === 429) {
-      logger.warn('github_rate_limit', { path });
-      return c.text('Service Unavailable: GitHub Rate Limited', 503, { 'Retry-After': '60' });
+      return c.text('Forbidden: Origin Access Denied', 403);
     } else if (status >= 500) {
-      return c.text('Bad Gateway: GitHub Server Error', 502);
-    } else if (status === 304) {
-      return new Response(null, { status: 304 });
+      return c.text('Bad Gateway: Origin Server Error', 502);
     }
 
     // Prepare new response with appropriate headers
-    const body = [200, 404].includes(status) ? githubResponse.body : `${status} Error from Origin`;
-    const responseHeaders = new Headers(githubResponse.headers);
+    const body = [200, 404].includes(status) ? finalResponse.body : `${status} Error from Origin`;
+    const responseHeaders = new Headers(finalResponse.headers);
     
-    // Clean up headers from GitHub
+    // --- THOROUGH DE-IDENTIFICATION ---
+    // Remove all traces of GitHub and server info
     responseHeaders.delete('Server');
-    responseHeaders.delete('X-GitHub-Request-Id');
-    responseHeaders.delete('Access-Control-Allow-Origin');
     responseHeaders.delete('Set-Cookie');
+    responseHeaders.delete('Content-Disposition');
+    responseHeaders.delete('Link');
+    responseHeaders.delete('X-Powered-By');
+    
+    // Loop through and delete all GitHub specific headers
+    const headersToDelete: string[] = [];
+    responseHeaders.forEach((_, key) => {
+      if (key.toLowerCase().startsWith('x-github-') || key.toLowerCase().startsWith('access-control-')) {
+        headersToDelete.push(key);
+      }
+    });
+    headersToDelete.forEach(key => responseHeaders.delete(key));
 
     if (status === 200) {
-      // If CF resized it, it might have changed the content-type (e.g. to webp)
-      // If it didn't resize, we use our own mapping
-      if (!responseHeaders.has('Content-Type')) {
-        responseHeaders.set('Content-Type', getMimeType(path));
+      const detectedMime = getMimeType(path);
+      const currentType = responseHeaders.get('Content-Type');
+      if (!currentType || currentType.includes('application/vnd.github') || currentType === 'application/octet-stream') {
+        responseHeaders.set('Content-Type', detectedMime);
       }
-      responseHeaders.set('Vary', 'Accept'); // Important for format negotiation
+      responseHeaders.set('Vary', 'Accept');
     } else if (status === 404) {
       responseHeaders.set('Content-Type', 'text/plain');
     }
@@ -97,24 +150,20 @@ export const handleImageRequest = async (c: Context<AppEnvironment>) => {
       responseHeaders.set('Cache-Control', `public, max-age=${ttl}, s-maxage=${ttl}, immutable`);
     }
     
-    // Security headers
     responseHeaders.set('X-Content-Type-Options', 'nosniff');
-    responseHeaders.set('Referrer-Policy', 'no-referrer');
     responseHeaders.set('X-Cache', 'MISS');
 
-    // Create the final response
-    const finalResponse = new Response(body, {
+    const outputResponse = new Response(body, {
       status: status === 200 ? 200 : status,
       headers: responseHeaders
     });
 
-    // 4. Write back to Cache (if applicable)
     if (ttl > 0) {
-      c.executionCtx.waitUntil(cache.put(cacheKey, finalResponse.clone()));
+      c.executionCtx.waitUntil(cache.put(cacheKey, outputResponse.clone()));
     }
 
-    logger.info('cache_miss', { path, status, ms: Date.now() - startTime });
-    return finalResponse;
+    logger.info('request_done', { path, status, ms: Date.now() - startTime });
+    return outputResponse;
 
   } catch (error: any) {
     logger.error('internal_error', { path, error: error.message });
