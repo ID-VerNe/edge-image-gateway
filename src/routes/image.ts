@@ -13,7 +13,7 @@ export const handleImageRequest = async (c: Context<AppEnvironment>) => {
   
   // 1. Handle root path
   if (!path) {
-    const title = c.env.APP_TITLE || 'Private Picbed';
+    const title = c.env.APP_TITLE || 'Edge Image Gateway';
     const desc = c.env.APP_DESCRIPTION || 'Ready to serve images.';
     return c.html(`
       <html>

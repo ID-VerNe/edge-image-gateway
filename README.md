@@ -1,6 +1,6 @@
-# Picbed CF GitHub
+# Edge Image Gateway
 
-> 基于 **Cloudflare Workers + Hono + GitHub 私有仓库** 构建的生产级私有图床服务
+> A production-grade private image hosting service built on **Cloudflare Workers + Hono + GitHub Private Repositories**.
 
 ![TypeScript](https://img.shields.io/badge/TypeScript-6.x-blue)
 ![Hono](https://img.shields.io/badge/Hono-4.x-orange)
@@ -10,118 +10,100 @@
 
 ---
 
-## 项目简介
+## Introduction
 
-Picbed CF GitHub 是一个运行在 Cloudflare Workers 边缘网络上的私有图床服务。它将图片存储在 GitHub 私有仓库中，通过 Edge Worker 对外提供安全、快速的图片访问服务。适用于个人博客、Markdown 笔记、社交媒体分享等场景。
+Edge Image Gateway is a private image hosting and CDN service running on the Cloudflare Workers edge network. It stores images in private GitHub repositories and provides secure, high-speed access through Edge Workers. Ideal for personal blogs, Markdown notes, and social media sharing.
 
-**主要优势**：
+**Key Advantages**:
 
-- **零服务器成本**：利用 Cloudflare Workers 免费额度和 GitHub 免费私有仓库，无需托管任何后端服务器。
-- **全球加速**：通过 Cloudflare 边缘缓存，图片在全球范围内高速加载。
-- **安全可控**：图片存储在私有仓库中，对外访问受多层安全策略保护。
-- **丰富特性**：动态图片缩放、多仓库支持、管理后台、防盗链、签名分享等。
+- **Zero Infrastructure Cost**: Leverage Cloudflare Workers' free tier and GitHub's free private repositories with no backend server to manage.
+- **Global Acceleration**: High-speed loading worldwide via Cloudflare edge caching.
+- **Secure & Private**: Images are stored in private repos with multi-layered security (HMAC signatures, Referer protection).
+- **Rich Feature Set**: Dynamic image resizing, multi-repo scaling, high-fidelity admin panel, and anti-hotlinking.
 
 ---
 
-## 核心特性
+## Core Features
 
-### 存储层
+### Storage Layer
 
-- **GitHub 私有仓库存储**：图片源文件存放在 GitHub 私有仓库中，安全可靠。
-- **多仓库支持**：通过 KV 存储注册多个 GitHub 仓库，支持按路径前缀路由读取，支持多写仓库切换。
-- **原始文件直出**：通过 GitHub Contents API 以流式方式获取原始文件内容。
-- **多类型支持**：不仅支持常见图片格式（PNG、JPEG、WebP、AVIF、GIF、SVG），也可托管视频（MP4、WebM）及其他静态文件。
+- **GitHub Private Storage**: Secure and reliable storage using private GitHub repositories.
+- **Multi-Repo Scaling**: Register multiple repositories via KV to bypass single-repo limits and enable dynamic routing.
+- **Direct Raw Output**: Stream file content directly via GitHub Contents API.
+- **Multi-Format Support**: Supports common image formats (PNG, JPEG, WebP, AVIF, GIF, SVG) as well as videos (MP4, WebM) and static files.
 
-### 边缘处理
+### Edge Processing
 
-- **动态图片缩放**：支持通过 URL 查询参数在边缘节点实时调整图片尺寸、质量。
-- **自动格式协商**：Cloudflare Image Resizing 自动根据客户端能力选择 WebP/AVIF 等现代格式。
-- **回环代理模式**：独创的"回环代理"架构，完美解决 Cloudflare 缩放引擎无法直接抓取 GitHub 私有仓库内容的问题。当需要缩放时，Worker 构造带内部签名的请求回调自身，缩放引擎在 Worker 内部完成图片获取与缩放。
-- **智能降级**：缩放失败时自动回退到原始图片，保证服务不中断。
+- **Dynamic Image Resizing**: Real-time resizing and quality adjustment at the edge via URL parameters.
+- **Auto Format Negotiation**: Cloudflare Image Resizing automatically selects WebP/AVIF based on client capability.
+- **Loopback Proxy Architecture**: A custom "Loopback" pattern that solves the issue of Cloudflare's resizing engine being unable to directly fetch from private GitHub repos.
+- **Smart Fallback**: Automatically falls back to original images if resizing fails.
 
-### 混合防御安全模型
+### Multi-Layer Security Model
 
-| 防线 | 层级 | 说明 |
+| Layer | Type | Description |
 |------|------|------|
-| 防盗链 | 应用层 | 基于 Referer/Origin 请求头的域名白名单，配合 `Sec-Fetch-Dest` 校验 |
-| HMAC 签名 | 应用层 | 对图片提供带有效期的 HMAC-SHA256 签名链接，实现临时安全分享 |
-| 限流保护 | 应用层 | 基于 `CF-Connecting-IP` 的请求频率限制，含 404 惩罚封禁机制 |
-| 目录分级 | 应用层 | 敏感路径（`/private/`、`/draft/`、`/raw/`）强制签名 |
-| 紧急熔断 | 应用层 | 全站签名强制开关，一键启用最高防护等级 |
-| 响应脱敏 | 应用层 | 自动剥离后端标识响应头，隐藏架构信息 |
-| 路径安全 | 应用层 | 禁止路径穿越攻击（`..`） |
+| Anti-Hotlinking | App | Domain whitelist based on Referer/Origin headers with `Sec-Fetch-Dest` validation. |
+| HMAC Signature | App | Time-limited HMAC-SHA256 signed links for secure temporary sharing. |
+| Rate Limiting | App | IP-based request limits with 404 penalty-based blocking. |
+| Tiered Access | App | Mandatory signatures for sensitive paths (`/private/`, `/draft/`, `/raw/`). |
+| Emergency Lockdown | App | One-click global signature enforcement for maximum protection. |
+| Data De-identification | App | Strips backend identifiers (`X-GitHub-*`, `Server`, etc.) from responses. |
+| Path Security | App | Prevents path traversal attacks (`..`). |
 
-### 管理后台
+### Admin Panel
 
-- **文件管理**：图形化文件浏览器，支持列表/网格视图切换
-- **文件上传**：支持拖拽上传和点选上传，自动去重检测
-- **文件操作**：删除、移动、新建文件夹
-- **仓库管理**：多仓库注册、状态切换、写仓库切换
-- **统计面板**：仓库数、文件数、存储用量概览
-- **缓存管理**：一键刷新边缘缓存
-
-### 运维特性
-
-- **Cloudflare 边缘缓存**：利用 Cache API 缓存已请求的图片，减少 GitHub API 调用。
-- **结构化日志**：JSON 格式的结构化日志输出，便于检索和分析。
-- **GitHub Actions CI/CD**：主分支推送自动部署到生产环境，PR 自动部署预览环境。
-- **定时任务**：自动同步所有注册仓库的容量信息。
-- **健康检查端点**：`/healthz` 提供环境配置状态检查。
+- **File Management**: High-fidelity file browser with List/Grid view toggles.
+- **Seamless Uploads**: Drag-and-drop support with automatic SHA-256 deduplication.
+- **File Operations**: Delete, move, and create folders simulated via `.keep` files.
+- **Repo Management**: Multi-repo registration, status monitoring, and write-target switching.
+- **Statistics Dashboard**: Real-time overview of repo counts, file totals, and storage usage.
+- **Cache Control**: Manual purge interface for edge cache.
 
 ---
 
-## 快速开始
+## Quick Start
 
-### 前置要求
+### Prerequisites
 
 - [Node.js](https://nodejs.org/) 18+
-- [pnpm](https://pnpm.io/) 包管理器
-- [Wrangler CLI](https://developers.cloudflare.com/workers/wrangler/)（Cloudflare Workers 命令行工具）
-- Cloudflare 账户（免费版即可）
-- GitHub 账户
+- [pnpm](https://pnpm.io/) package manager
+- [Wrangler CLI](https://developers.cloudflare.com/workers/wrangler/)
+- Cloudflare Account
+- GitHub Account
 
-### 第一步：GitHub 准备
+### Step 1: GitHub Setup
 
-1. 创建一个 **私有 (Private)** 仓库用于存放图片（例如 `picbed-storage`）。
-2. 生成一个 **Fine-grained Personal Access Token (PAT)**：
-   - 访问 GitHub Settings → Developer settings → Personal access tokens → Fine-grained tokens
-   - 设置权限：`Contents` - `Read and write`
-   - Repository access：仅限上述存储仓库
+1. Create a **Private** repository (e.g., `image-storage`).
+2. Generate a **Fine-grained Personal Access Token (PAT)**:
+   - Scope: `Contents` - `Read and write`
+   - Access: Only the specific storage repository.
 
-### 第二步：安装依赖
+### Step 2: Install
 
 ```bash
 pnpm install
 ```
 
-### 第三步：配置项目
+### Step 3: Configure
 
-复制配置文件模板并编辑：
+Copy the template and edit `wrangler.toml`:
 
 ```bash
 cp wrangler.toml.example wrangler.toml
 ```
 
-编辑 `wrangler.toml`，参考 [配置文档](./docs/configuration.md) 设置各项参数。
-
-### 第四步：设置 Secrets
+### Step 4: Set Secrets
 
 ```bash
 npx wrangler secret put GITHUB_TOKEN
 npx wrangler secret put SIGN_SECRET
 ```
 
-### 第五步：本地测试
+### Step 5: Test & Deploy
 
 ```bash
 pnpm dev
-```
-
-访问 `http://localhost:8787/healthz` 检查服务是否正常运行。
-
-### 第六步：部署
-
-```bash
 pnpm deploy
 ```
 
