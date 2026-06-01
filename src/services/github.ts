@@ -1,15 +1,17 @@
 import { Bindings } from '../types/env';
 import { logger } from '../utils/logger';
+import { ResolvedRepo } from './repoRouter';
 
 export const fetchFromGitHub = async (
   path: string, 
-  env: Bindings, 
+  repo: ResolvedRepo,
   cfOptions?: RequestInitCfProperties
 ): Promise<Response> => {
-  const url = `https://api.github.com/repos/${env.GITHUB_USER}/${env.GITHUB_REPO}/contents/${path}?ref=${env.GITHUB_BRANCH || 'main'}`;
+  const { meta, token } = repo;
+  const url = `https://api.github.com/repos/${meta.owner}/${meta.name}/contents/${path}?ref=${meta.branch}`;
   
   const headers = new Headers({
-    'Authorization': `Bearer ${env.GITHUB_TOKEN}`,
+    'Authorization': `Bearer ${token}`,
     'Accept': 'application/vnd.github.raw',
     'User-Agent': 'cf-worker-img-proxy'
   });
@@ -22,7 +24,7 @@ export const fetchFromGitHub = async (
   });
   const ms = Date.now() - startTime;
 
-  logger.info('origin_fetch', { path, status: response.status, ms });
+  logger.info('origin_fetch', { path, status: response.status, ms, repo: meta.id });
 
   return response;
 };

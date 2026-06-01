@@ -4,6 +4,9 @@ import { refererGuard } from './middleware/referer';
 import { rateLimitGuard } from './middleware/rateLimit';
 import { signatureGuard } from './middleware/signature';
 import { handleImageRequest } from './routes/image';
+import adminApp from './routes/admin';
+import { syncCapacity } from './services/cron';
+import { logger } from './utils/logger';
 
 const app = new Hono<AppEnvironment>();
 
@@ -25,7 +28,22 @@ app.get('/healthz', (c) => {
 app.use('/*', rateLimitGuard);
 app.use('/*', signatureGuard);
 
+// Mount Admin UI and APIs
+app.route('/admin', adminApp);
+
 // Main image routing
 app.get('/*', handleImageRequest);
 
-export default app;
+export default {
+  fetch: app.fetch,
+  scheduled: async (event: any, env: AppEnvironment['Bindings'], ctx: any) => {
+    ctx.waitUntil((async () => {
+      try {
+        const results = await syncCapacity(env);
+        logger.info('cron_sync_capacity', { results });
+      } catch (err: any) {
+        logger.error('cron_sync_capacity_error', { message: err.message });
+      }
+    })());
+  }
+};

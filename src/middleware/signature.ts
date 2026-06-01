@@ -14,9 +14,21 @@ export const signatureGuard = async (c: Context<AppEnvironment>, next: Next) => 
   const reqUrl = new URL(c.req.url);
   const path = c.req.path;
 
-  // 1. Skip for health check or root (publicly safe)
-  if (path === '/healthz' || path === '/') {
+  // 1. Skip for health check, root, or admin paths
+  if (path === '/healthz' || path === '/' || path.startsWith('/admin')) {
     return await next();
+  }
+
+  // 1.5. Whitelist Internal Loopback (Image Resizing)
+  // This allows the Worker to fetch itself for resizing purposes.
+  // The __sig must be valid for the path.
+  const isInternal = reqUrl.searchParams.get('__internal_loopback') === 'true';
+  const internalSig = reqUrl.searchParams.get('__sig');
+  if (isInternal && internalSig) {
+    const expectedInternalSig = await generateHMAC(path.replace(/^\/+/, ''), c.env.SIGN_SECRET);
+    if (internalSig === expectedInternalSig) {
+      return await next();
+    }
   }
 
   // 2. Emergency Lockdown Switch
@@ -59,16 +71,17 @@ export const signatureGuard = async (c: Context<AppEnvironment>, next: Next) => 
   const sig = c.req.query('sig');
   const exp = c.req.query('exp');
 
-  // If no signature but needed
+  // If no signature provided
   if (!sig || !exp) {
-    // We force signature if:
-    // - Global signature is on
-    // - It's a strict path
-    // - Access is direct (no referer) and not already bypassed
-    if (isGlobalSignEnabled || isStrictPath || !isTrustedSource) {
+    // Only force signature if:
+    // - Global lockdown is active
+    // - It's a strict path (/private/, /draft/, /raw/)
+    // - Global mandatory signature is enabled via config
+    if (isLockdown || isStrictPath || isGlobalSignEnabled) {
       logger.warn('access_denied_no_sig', { path, referer });
       return c.text('Forbidden: Valid signature required for this access method or path.', 403);
     }
+    // Otherwise, allow access (especially for direct browser visits to public images)
     return await next();
   }
 

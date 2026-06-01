@@ -8,6 +8,10 @@ GITHUB_USER = "YOUR_GITHUB_USERNAME"
 GITHUB_REPO = "YOUR_STORAGE_REPO_NAME"
 GITHUB_BRANCH = "main"
 
+[[kv_namespaces]]
+binding = "REPO_REGISTRY"
+id = "YOUR_KV_NAMESPACE_ID"
+
 # 页面展示配置
 APP_TITLE = "My Private Picbed"
 APP_DESCRIPTION = "Ready to serve images from private storage."

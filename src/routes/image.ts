@@ -1,6 +1,7 @@
 import { Context } from 'hono';
 import { AppEnvironment } from '../types/env';
 import { fetchFromGitHub } from '../services/github';
+import { resolveForRead } from '../services/repoRouter';
 import { getMimeType } from '../utils/mime';
 import { logger } from '../utils/logger';
 import { generateHMAC } from '../utils/hmac';
@@ -39,7 +40,8 @@ export const handleImageRequest = async (c: Context<AppEnvironment>) => {
     // Verify internal signature to prevent abuse
     const expectedSig = await generateHMAC(path, c.env.SIGN_SECRET);
     if (internalSig === expectedSig) {
-      const resp = await fetchFromGitHub(path, c.env);
+      const repo = await resolveForRead(path, c.env);
+      const resp = await fetchFromGitHub(path, repo);
       const newResp = new Response(resp.body, resp);
       newResp.headers.set('Content-Type', getMimeType(path));
       newResp.headers.delete('Content-Disposition');
@@ -85,19 +87,24 @@ export const handleImageRequest = async (c: Context<AppEnvironment>) => {
           height: height ? parseInt(height, 10) : undefined,
           quality: quality ? parseInt(quality, 10) : undefined,
           fit: fit || 'cover',
-          format: 'auto',
+          format: 'auto' as any,
         }
       };
 
       // Fetch "self" - the resizing proxy will now call our Worker back
-      finalResponse = await fetch(loopbackUrl.toString(), { cf: cfOptions });
+      finalResponse = await fetch(loopbackUrl.toString(), { 
+        headers: { 'Referer': c.req.url },
+        cf: cfOptions 
+      });
       
       // If loopback fails (e.g. 415/400 because plan doesn't support it), fallback to original
       if (finalResponse.status === 415 || finalResponse.status === 400) {
-        finalResponse = await fetchFromGitHub(path, c.env);
+        const repo = await resolveForRead(path, c.env);
+        finalResponse = await fetchFromGitHub(path, repo);
       }
     } else {
-      finalResponse = await fetchFromGitHub(path, c.env);
+      const repo = await resolveForRead(path, c.env);
+      finalResponse = await fetchFromGitHub(path, repo);
     }
 
     // 5. Handle errors and caching strategies

@@ -1,7 +1,13 @@
 export interface Bindings {
+  // KV Namespace for Repo Registry
+  REPO_REGISTRY: KVNamespace;
+
+  // Fallback / Default Repo Config (used if KV is not setup or empty)
   GITHUB_USER: string;
   GITHUB_REPO: string;
   GITHUB_BRANCH: string;
+  GITHUB_TOKEN: string;
+
   ALLOWED_REFERERS: string;
   CACHE_TTL_SECONDS: string;
   ENABLE_SIGNATURE: string;
@@ -9,9 +15,9 @@ export interface Bindings {
   APP_TITLE: string;
   APP_DESCRIPTION: string;
   EMERGENCY_LOCKDOWN: string; // "true" or "false"
+  ADMIN_EMAILS: string; // comma-separated whitelist
 
   // Secrets
-  GITHUB_TOKEN: string;
   SIGN_SECRET: string;
 }
 
