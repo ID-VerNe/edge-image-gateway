@@ -1,6 +1,6 @@
 # Edge Image Gateway
 
-> A production-grade private image hosting service built on **Cloudflare Workers + Hono + GitHub Private Repositories**.
+> 基于 **Cloudflare Workers + Hono + GitHub 私有仓库** 构建的生产级私有图片托管服务。
 
 ![TypeScript](https://img.shields.io/badge/TypeScript-6.x-blue)
 ![Hono](https://img.shields.io/badge/Hono-4.x-orange)
@@ -10,97 +10,97 @@
 
 ---
 
-## Introduction
+## 简介
 
-Edge Image Gateway is a private image hosting and CDN service running on the Cloudflare Workers edge network. It stores images in private GitHub repositories and provides secure, high-speed access through Edge Workers. Ideal for personal blogs, Markdown notes, and social media sharing.
+Edge Image Gateway 是一款运行于 Cloudflare Workers 边缘网络的私有图片托管和 CDN 服务。它将图片存储在私有 GitHub 仓库中，并通过 Edge Workers 提供安全、高速的访问。非常适合个人博客、Markdown 笔记和社交媒体分享。
 
-**Key Advantages**:
+**核心优势**：
 
-- **Zero Infrastructure Cost**: Leverage Cloudflare Workers' free tier and GitHub's free private repositories with no backend server to manage.
-- **Global Acceleration**: High-speed loading worldwide via Cloudflare edge caching.
-- **Secure & Private**: Images are stored in private repos with multi-layered security (HMAC signatures, Referer protection).
-- **Rich Feature Set**: Dynamic image resizing, multi-repo scaling, high-fidelity admin panel, and anti-hotlinking.
+- **零基础设施成本**：利用 Cloudflare Workers 免费套餐和 GitHub 免费私有仓库，无需管理后端服务器。
+- **全球加速**：依托 Cloudflare 边缘缓存实现全球高速加载。
+- **安全私密**：图片存储在私有仓库中，具备多层安全防护（HMAC 签名、Referer 保护）。
+- **功能丰富**：支持动态图片缩放、多仓库扩展、高保真管理后台和防盗链。
 
 ---
 
-## Core Features
+## 核心功能
 
-### Storage Layer
+### 存储层
 
-- **GitHub Private Storage**: Secure and reliable storage using private GitHub repositories.
-- **Multi-Repo Scaling**: Register multiple repositories via KV to bypass single-repo limits and enable dynamic routing.
-- **Direct Raw Output**: Stream file content directly via GitHub Contents API.
-- **Multi-Format Support**: Supports common image formats (PNG, JPEG, WebP, AVIF, GIF, SVG) as well as videos (MP4, WebM) and static files.
+- **GitHub 私有存储**：使用私有 GitHub 仓库实现安全可靠的存储。
+- **多仓库扩展**：通过 KV 注册多个仓库，突破单仓库限制并实现动态路由。
+- **直接原始输出**：通过 GitHub Contents API 直接流式传输文件内容。
+- **多格式支持**：支持常见图片格式（PNG、JPEG、WebP、AVIF、GIF、SVG）以及视频（MP4、WebM）和静态文件。
 
-### Edge Processing
+### 边缘处理
 
-- **Dynamic Image Resizing**: Real-time resizing and quality adjustment at the edge via URL parameters.
-- **Auto Format Negotiation**: Cloudflare Image Resizing automatically selects WebP/AVIF based on client capability.
-- **Loopback Proxy Architecture**: A custom "Loopback" pattern that solves the issue of Cloudflare's resizing engine being unable to directly fetch from private GitHub repos.
-- **Smart Fallback**: Automatically falls back to original images if resizing fails.
+- **动态图片缩放**：通过 URL 参数在边缘实时调整图片大小和质量。
+- **自动格式协商**：Cloudflare Image Resizing 根据客户端能力自动选择 WebP/AVIF 格式。
+- **回环代理架构**：自定义"回环"模式，解决 Cloudflare 缩放引擎无法直接获取私有 GitHub 仓库内容的问题。
+- **智能降级**：缩放失败时自动回退到原始图片。
 
-### Multi-Layer Security Model
+### 多层安全模型
 
-| Layer | Type | Description |
+| 安全层 | 类型 | 说明 |
 |------|------|------|
-| Anti-Hotlinking | App | Domain whitelist based on Referer/Origin headers with `Sec-Fetch-Dest` validation. |
-| HMAC Signature | App | Time-limited HMAC-SHA256 signed links for secure temporary sharing. |
-| Rate Limiting | App | IP-based request limits with 404 penalty-based blocking. |
-| Tiered Access | App | Mandatory signatures for sensitive paths (`/private/`, `/draft/`, `/raw/`). |
-| Emergency Lockdown | App | One-click global signature enforcement for maximum protection. |
-| Data De-identification | App | Strips backend identifiers (`X-GitHub-*`, `Server`, etc.) from responses. |
-| Path Security | App | Prevents path traversal attacks (`..`). |
+| 防盗链 | 应用层 | 基于 Referer/Origin 头部的域名白名单，配合 `Sec-Fetch-Dest` 验证 |
+| HMAC 签名 | 应用层 | 基于 HMAC-SHA256 的限时签名链接，实现安全的临时分享 |
+| 速率限制 | 应用层 | 基于 IP 的请求限制，配合 404 惩罚机制进行封禁 |
+| 分级访问 | 应用层 | 敏感路径（`/private/`、`/draft/`、`/raw/`）强制要求签名 |
+| 紧急锁定 | 应用层 | 一键全局签名强制启用，提供最大程度保护 |
+| 数据脱敏 | 应用层 | 从响应中剥离后端标识信息（`X-GitHub-*`、`Server` 等） |
+| 路径安全 | 应用层 | 防止路径遍历攻击（`..`） |
 
-### Admin Panel
+### 管理后台
 
-- **File Management**: High-fidelity file browser with List/Grid view toggles.
-- **Seamless Uploads**: Drag-and-drop support with automatic SHA-256 deduplication.
-- **File Operations**: Delete, move, and create folders simulated via `.keep` files.
-- **Repo Management**: Multi-repo registration, status monitoring, and write-target switching.
-- **Statistics Dashboard**: Real-time overview of repo counts, file totals, and storage usage.
-- **Cache Control**: Manual purge interface for edge cache.
+- **文件管理**：高保真文件浏览器，支持列表/网格视图切换。
+- **无缝上传**：拖拽上传，自动 SHA-256 去重。
+- **文件操作**：删除、移动文件，通过 `.keep` 文件模拟创建文件夹。
+- **仓库管理**：多仓库注册、状态监控、写入目标切换。
+- **统计仪表盘**：实时查看仓库数量、文件总数和存储用量。
+- **缓存控制**：边缘缓存手动清理接口。
 
 ---
 
-## Quick Start
+## 快速开始
 
-### Prerequisites
+### 前置条件
 
 - [Node.js](https://nodejs.org/) 18+
-- [pnpm](https://pnpm.io/) package manager
+- [pnpm](https://pnpm.io/) 包管理器
 - [Wrangler CLI](https://developers.cloudflare.com/workers/wrangler/)
-- Cloudflare Account
-- GitHub Account
+- Cloudflare 账户
+- GitHub 账户
 
-### Step 1: GitHub Setup
+### 第一步：GitHub 配置
 
-1. Create a **Private** repository (e.g., `image-storage`).
-2. Generate a **Fine-grained Personal Access Token (PAT)**:
-   - Scope: `Contents` - `Read and write`
-   - Access: Only the specific storage repository.
+1. 创建一个**私有**仓库（例如 `image-storage`）。
+2. 生成一个**细粒度个人访问令牌（PAT）**：
+   - 权限范围：`Contents` - `读取和写入`
+   - 访问权限：仅限特定的存储仓库。
 
-### Step 2: Install
+### 第二步：安装依赖
 
 ```bash
 pnpm install
 ```
 
-### Step 3: Configure
+### 第三步：配置
 
-Copy the template and edit `wrangler.toml`:
+复制模板文件并编辑 `wrangler.toml`：
 
 ```bash
 cp wrangler.toml.example wrangler.toml
 ```
 
-### Step 4: Set Secrets
+### 第四步：设置密钥
 
 ```bash
 npx wrangler secret put GITHUB_TOKEN
 npx wrangler secret put SIGN_SECRET
 ```
 
-### Step 5: Test & Deploy
+### 第五步：测试与部署
 
 ```bash
 pnpm dev
