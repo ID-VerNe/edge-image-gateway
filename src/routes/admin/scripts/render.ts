@@ -43,7 +43,7 @@ export const RENDER = `
               : \`<img class="grid-preview" src="/\${f.path}?w=300&q=70" onclick="window.open('/\${f.path}', '_blank')">\`
             }
             <div class="grid-info">
-              <div class="grid-name">\${f.name}</div>
+              <div class="grid-name" title="\${f.name}">\${f.name}</div>
               <div class="grid-actions">
                 \${isDir 
                   ? \`<button class="btn btn-mini" style="flex:1" onclick="loadFiles('\${f.path}')">Open</button>\`

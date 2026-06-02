@@ -145,7 +145,7 @@ export const CSS = `
   .folder-grid-item:hover { border-color: var(--kami-blue); }
   .grid-preview { width: 100%; height: 160px; object-fit: contain; background: var(--github-gray); cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 3rem; flex-shrink: 0; }
   .grid-info { padding: 0.5rem; border-top: 1px solid var(--kami-border); flex: 1; display: flex; flex-direction: column; justify-content: space-between; min-height: 0; }
-  .grid-name { font-size: 0.75rem; font-weight: 500; margin-bottom: 0.4rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--kami-blue); }
+  .grid-name { font-size: 0.75rem; font-weight: 500; margin-bottom: 0.4rem; color: var(--kami-blue); word-break: break-all; line-height: 1.2; height: 2.4em; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
   .grid-actions { display: flex; gap: 0.5rem; }
   .btn-mini { padding: 1px 4px; min-width: 45px; justify-content: center; font-size: 0.75rem; }
 
