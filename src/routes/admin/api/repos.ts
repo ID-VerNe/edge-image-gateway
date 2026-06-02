@@ -1,12 +1,13 @@
 import { Hono } from 'hono';
 import { AppEnvironment } from '../../../types/env';
-import { listAllRepos, RepoMeta } from '../../../services/repoRouter';
+import { listAllRepos, RepoMeta, getCurrentWriteId } from '../../../services/repoRouter';
 
 const repoApi = new Hono<AppEnvironment>();
 
 repoApi.get('/', async (c) => {
   const repos = await listAllRepos(c.env);
-  return c.json({ repos });
+  const currentWriteId = await getCurrentWriteId(c.env);
+  return c.json({ repos, currentWriteId });
 });
 
 repoApi.post('/', async (c) => {

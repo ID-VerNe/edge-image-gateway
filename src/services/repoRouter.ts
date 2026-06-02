@@ -180,3 +180,8 @@ export const listAllRepos = async (env: Bindings): Promise<RepoMeta[]> => {
   }
   return Array.from(cachedRepos.values());
 };
+
+export const getCurrentWriteId = async (env: Bindings): Promise<string> => {
+  await ensureCache(env);
+  return cachedCurrentWrite || 'fallback';
+};

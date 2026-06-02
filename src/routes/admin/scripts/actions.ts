@@ -140,9 +140,24 @@ export const ACTIONS = `
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body)
       });
-      loadRepos();
+      await loadRepos();
+      await loadStats();
       hideAddRepoModal();
     } catch(e) { alert('Failed to register repo'); }
+    hideLoader();
+  }
+
+  async function setWriteRepo(repoId) {
+    showLoader('Switching write target...');
+    try {
+      await fetch('/admin/api/repos/route/write', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ repo: repoId })
+      });
+      await loadRepos();
+      showToast('Write target switched to ' + repoId);
+    } catch(e) { alert('Failed to switch write target'); }
     hideLoader();
   }
 
