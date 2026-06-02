@@ -112,7 +112,25 @@ export const invalidateRepoCache = () => {
   cachedCurrentWrite = null;
 };
 
-export const resolveForRead = async (path: string, env: Bindings): Promise<ResolvedRepo> => {
+export const backfillPathIndex = async (path: string, repoId: string, env: Bindings) => {
+  if (!env.REPO_REGISTRY) return;
+  try {
+    // Check again to avoid unnecessary writes if another isolate did it
+    const exists = await env.REPO_REGISTRY.get(`path::${path}`, { cacheTtl: 60 });
+    if (!exists) {
+      await env.REPO_REGISTRY.put(`path::${path}`, JSON.stringify({ repoId }));
+      console.log(`Lazy-indexed path: ${path} -> ${repoId}`);
+    }
+  } catch (err) {
+    console.error('Failed to backfill path index:', err);
+  }
+};
+
+export const resolveForRead = async (
+  path: string, 
+  env: Bindings, 
+  waitUntil?: (promise: Promise<any>) => void
+): Promise<ResolvedRepo> => {
   await ensureCache(env);
 
   if (cachedRepos.size === 0) {
@@ -137,6 +155,8 @@ export const resolveForRead = async (path: string, env: Bindings): Promise<Resol
         const repoId = getRepoIdFromRecord(record);
         if (repoId && cachedRepos.has(repoId)) {
           const repo = cachedRepos.get(repoId)!;
+          // Note: We don't backfill prefix matches to exact matches here to avoid bloat,
+          // but we could if we wanted to speed up specific file access in deep folders.
           return { meta: repo, token: getTokenFromEnv(env, repo.tokenSecretName) };
         }
       }
@@ -144,29 +164,39 @@ export const resolveForRead = async (path: string, env: Bindings): Promise<Resol
   }
 
   // 3. Check read rules
+  let matchedRepoId: string | null = null;
   if (cachedReadRules && cachedReadRules.length > 0) {
-    // Ensure path starts with / for prefix matching if rules use it
     const matchPath = path.startsWith('/') ? path : `/${path}`;
     for (const rule of cachedReadRules) {
       if (matchPath.startsWith(rule.prefix)) {
-        const repo = cachedRepos.get(rule.repo);
-        if (repo) {
-          return { meta: repo, token: getTokenFromEnv(env, repo.tokenSecretName) };
+        if (cachedRepos.has(rule.repo)) {
+          matchedRepoId = rule.repo;
+          break;
         }
       }
     }
   }
 
-  // Fallback to current write repo or first available
-  if (cachedCurrentWrite && cachedRepos.has(cachedCurrentWrite)) {
-    const repo = cachedRepos.get(cachedCurrentWrite)!;
-    return { meta: repo, token: getTokenFromEnv(env, repo.tokenSecretName) };
+  // 4. Fallback to current write repo
+  if (!matchedRepoId && cachedCurrentWrite && cachedRepos.has(cachedCurrentWrite)) {
+    matchedRepoId = cachedCurrentWrite;
   }
 
-  // If no rules matched and no write repo, just pick the first one
-  const firstRepo = cachedRepos.values().next().value as RepoMeta;
-  if (firstRepo) {
-    return { meta: firstRepo, token: getTokenFromEnv(env, firstRepo.tokenSecretName) };
+  // 5. Final fallback: first available
+  if (!matchedRepoId) {
+    const firstRepo = cachedRepos.values().next().value as RepoMeta;
+    if (firstRepo) matchedRepoId = firstRepo.id;
+  }
+
+  if (matchedRepoId && cachedRepos.has(matchedRepoId)) {
+    const repo = cachedRepos.get(matchedRepoId)!;
+    
+    // BACKFILL: If we resolved via rules/fallback AND we have waitUntil, index it for next time.
+    if (waitUntil && env.REPO_REGISTRY && path) {
+      waitUntil(backfillPathIndex(path, matchedRepoId, env));
+    }
+
+    return { meta: repo, token: getTokenFromEnv(env, repo.tokenSecretName) };
   }
 
   return getFallbackRepo(env);
