@@ -156,8 +156,71 @@ export const ACTIONS = `
         body: JSON.stringify({ repo: repoId })
       });
       await loadRepos();
+      await loadFiles(''); // Auto refresh file list
       showToast('Write target switched to ' + repoId);
     } catch(e) { alert('Failed to switch write target'); }
+    hideLoader();
+  }
+
+  function showEditRepoModal(repo) {
+    const modal = document.getElementById('editRepoModal');
+    if(modal) {
+      document.getElementById('editRepoOldId').value = repo.id;
+      document.getElementById('editRepoId').value = repo.id;
+      document.getElementById('editRepoOwner').value = repo.owner;
+      document.getElementById('editRepoName').value = repo.name;
+      document.getElementById('editRepoBranch').value = repo.branch;
+      document.getElementById('editRepoCapacity').value = repo.capacityLimitBytes;
+      modal.style.display = 'flex';
+    }
+  }
+
+  function hideEditRepoModal() {
+    const modal = document.getElementById('editRepoModal');
+    if(modal) modal.style.display = 'none';
+  }
+
+  async function updateRepo() {
+    const oldId = document.getElementById('editRepoOldId').value;
+    const body = {
+      newId: document.getElementById('editRepoId').value,
+      owner: document.getElementById('editRepoOwner').value,
+      name: document.getElementById('editRepoName').value,
+      branch: document.getElementById('editRepoBranch').value,
+      capacityLimitBytes: parseInt(document.getElementById('editRepoCapacity').value)
+    };
+    showLoader('Updating repo...');
+    try {
+      const res = await fetch(\`/admin/api/repos/\${oldId}\`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body)
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Update failed');
+      
+      await loadRepos();
+      hideEditRepoModal();
+      showToast('Repository updated');
+    } catch(e) { alert(e.message); }
+    hideLoader();
+  }
+
+  async function deleteRepo(id) {
+    const deleteAll = confirm('Delete all aliases linked to this physical repository? \\n(Cancel to delete ONLY this ID)');
+    const totp = prompt('This is a destructive action. Enter TOTP code to confirm deletion of ' + id + ':');
+    if (!totp) return;
+
+    showLoader('Deleting repo...');
+    try {
+      const res = await fetch(\`/admin/api/repos/\${id}?totp=\${totp}&all=\${deleteAll}\`, { method: 'DELETE' });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Delete failed');
+
+      await loadRepos();
+      await loadStats();
+      showToast('Repository deleted');
+    } catch(e) { alert(e.message); }
     hideLoader();
   }
 

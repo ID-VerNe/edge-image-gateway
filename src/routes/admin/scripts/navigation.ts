@@ -30,6 +30,7 @@ export const NAVIGATION = `
       const list = document.getElementById('repo-settings-list');
       if(list) list.innerHTML = repos.map(repo => {
         const isCurrentWrite = repo.id === currentWriteId;
+        const isFallback = repo.id === 'fallback';
         return \`
           <div style="padding:1.5rem; border:1px solid \${isCurrentWrite ? 'var(--kami-blue)' : 'var(--kami-border)'}; border-radius:6px; margin-bottom:1.5rem; background:#fff; position:relative;">
             \${isCurrentWrite ? '<div style="position:absolute; top:0; right:1.5rem; background:var(--kami-blue); color:#fff; font-size:0.7rem; padding:2px 8px; border-radius:0 0 4px 4px; font-weight:600;">ACTIVE WRITE TARGET</div>' : ''}
@@ -37,6 +38,10 @@ export const NAVIGATION = `
               <div style="font-size:1.1rem; font-weight:600;">\${repo.id} <span style="font-weight:400; color:#57606a; font-size:0.9rem;">(\${repo.owner}/\${repo.name})</span></div>
               <div style="display:flex; gap:0.5rem; align-items:center;">
                 \${!isCurrentWrite ? \`<button class="btn" style="font-size:0.75rem; padding:2px 8px;" onclick="setWriteRepo('\${repo.id}')">Set Active</button>\` : ''}
+                \${!isFallback ? \`
+                  <button class="btn" style="font-size:0.75rem; padding:2px 8px;" onclick='showEditRepoModal(\${JSON.stringify(repo)})'>Edit</button>
+                  <button class="btn btn-danger" style="font-size:0.75rem; padding:2px 8px;" onclick="deleteRepo('\${repo.id}')">Delete</button>
+                \` : ''}
                 <div class="tree-item" style="padding:0; cursor:default;"><i style="color:\${repo.status === 'active' ? '#2da44e' : '#cf222e'}">●</i> \${repo.status}</div>
               </div>
             </div>

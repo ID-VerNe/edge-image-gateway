@@ -122,6 +122,39 @@ export const PARTIALS = {
       </div>
     </div>
 
+    <div class="modal" id="editRepoModal">
+      <div class="modal-content" style="width:500px;">
+        <h3 style="margin-top:0">Edit Repository</h3>
+        <input type="hidden" id="editRepoOldId">
+        <div style="display:grid; gap:1rem;">
+          <div>
+            <label style="font-size:0.75rem; color:#57606a;">Repo ID</label>
+            <input type="text" id="editRepoId" style="width:100%; padding:0.5rem; border:1px solid var(--kami-border); border-radius:6px;">
+          </div>
+          <div>
+            <label style="font-size:0.75rem; color:#57606a;">GitHub Owner</label>
+            <input type="text" id="editRepoOwner" style="width:100%; padding:0.5rem; border:1px solid var(--kami-border); border-radius:6px;">
+          </div>
+          <div>
+            <label style="font-size:0.75rem; color:#57606a;">GitHub Repo Name</label>
+            <input type="text" id="editRepoName" style="width:100%; padding:0.5rem; border:1px solid var(--kami-border); border-radius:6px;">
+          </div>
+          <div>
+            <label style="font-size:0.75rem; color:#57606a;">Branch</label>
+            <input type="text" id="editRepoBranch" style="width:100%; padding:0.5rem; border:1px solid var(--kami-border); border-radius:6px;">
+          </div>
+          <div>
+            <label style="font-size:0.75rem; color:#57606a;">Capacity (Bytes)</label>
+            <input type="number" id="editRepoCapacity" style="width:100%; padding:0.5rem; border:1px solid var(--kami-border); border-radius:6px;">
+          </div>
+        </div>
+        <div style="display:flex; justify-content:flex-end; gap:0.5rem; margin-top:1.5rem;">
+          <button class="btn" onclick="hideEditRepoModal()">Cancel</button>
+          <button class="btn btn-primary" onclick="updateRepo()">Save Changes</button>
+        </div>
+      </div>
+    </div>
+
     <input type="file" id="fileInput" style="display: none" multiple />
   `
 };
