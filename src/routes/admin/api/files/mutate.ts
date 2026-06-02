@@ -1,8 +1,9 @@
 import { Hono } from 'hono';
 import { Buffer } from 'node:buffer';
 import { AppEnvironment } from '../../../../types/env';
-import { resolveForRead, resolveForWrite } from '../../../../services/repoRouter';
+import { resolveForRead, resolveForWrite, RepoMeta } from '../../../../services/repoRouter';
 import { githubService } from '../../../../services/github';
+import { purgeFileCache } from '../../../../utils/cache';
 
 const mutateApi = new Hono<AppEnvironment>();
 
@@ -118,6 +119,9 @@ mutateApi.delete('/*', async (c) => {
       
       await c.env.REPO_REGISTRY.put(`repo::${repo.meta.id}`, JSON.stringify(repo.meta));
       await c.env.REPO_REGISTRY.delete(`path::${path}`);
+
+      // Granular Cache Purge
+      c.executionCtx.waitUntil(purgeFileCache(path, c.env, new URL(c.req.url).origin));
     }
 
     return c.json({ success: true, path });
@@ -242,12 +246,8 @@ const runMigration = async (taskId: string, c: any) => {
 
     // 5. Done
     if (task.status === 'indexed') {
-      // Clear Cache
-      try {
-        const cache = caches.default;
-        const origin = new URL(c.req.url).origin;
-        await cache.delete(new Request(`${origin}/${task.sourcePath}`));
-      } catch {}
+      // Clear Cache (including all variants)
+      c.executionCtx.waitUntil(purgeFileCache(task.sourcePath, c.env, new URL(c.req.url).origin));
       
       await updateStatus('done');
     }

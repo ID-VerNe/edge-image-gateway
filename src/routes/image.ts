@@ -5,6 +5,7 @@ import { resolveForRead } from '../services/repoRouter';
 import { getMimeType } from '../utils/mime';
 import { logger } from '../utils/logger';
 import { generateHMAC } from '../utils/hmac';
+import { recordCacheVariant } from '../utils/cache';
 
 export const handleImageRequest = async (c: Context<AppEnvironment>) => {
   const reqUrl = new URL(c.req.url);
@@ -167,6 +168,10 @@ export const handleImageRequest = async (c: Context<AppEnvironment>) => {
 
     if (ttl > 0) {
       c.executionCtx.waitUntil(cache.put(cacheKey, outputResponse.clone()));
+      // Record variant if has query params
+      if (reqUrl.search) {
+        c.executionCtx.waitUntil(recordCacheVariant(path, reqUrl.toString(), c.env));
+      }
     }
 
     logger.info('request_done', { path, status, ms: Date.now() - startTime });
