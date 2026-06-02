@@ -121,23 +121,53 @@ export const resolveForRead = async (path: string, env: Bindings): Promise<Resol
   return getFallbackRepo(env);
 };
 
-export const resolveForWrite = async (env: Bindings): Promise<ResolvedRepo> => {
+export const resolveForWrite = async (env: Bindings, requiredBytes: number = 0): Promise<ResolvedRepo> => {
   await ensureCache(env);
 
   if (cachedRepos.size === 0) {
     return getFallbackRepo(env);
   }
 
+  let currentRepo: RepoMeta | undefined;
   if (cachedCurrentWrite && cachedRepos.has(cachedCurrentWrite)) {
-    const repo = cachedRepos.get(cachedCurrentWrite)!;
-    return { meta: repo, token: getTokenFromEnv(env, repo.tokenSecretName) };
+    currentRepo = cachedRepos.get(cachedCurrentWrite);
   }
 
-  // Pick first active repo as fallback
-  for (const repo of cachedRepos.values()) {
-    if (repo.status === 'active') {
-      return { meta: repo, token: getTokenFromEnv(env, repo.tokenSecretName) };
+  // If current write repo is active and has space, use it
+  if (currentRepo && currentRepo.status === 'active') {
+    if (currentRepo.sizeBytes + requiredBytes <= currentRepo.capacityLimitBytes) {
+      return { meta: currentRepo, token: getTokenFromEnv(env, currentRepo.tokenSecretName) };
     }
+    
+    // Current is full, try to find another active one with space
+    for (const repo of cachedRepos.values()) {
+      if (repo.id !== currentRepo.id && repo.status === 'active' && repo.sizeBytes + requiredBytes <= repo.capacityLimitBytes) {
+        // Automatic switch to new repository with space
+        if (env.REPO_REGISTRY) {
+          await env.REPO_REGISTRY.put('route::current_write', repo.id);
+          cachedCurrentWrite = repo.id;
+        }
+        return { meta: repo, token: getTokenFromEnv(env, repo.tokenSecretName) };
+      }
+    }
+  }
+
+  // If current_write was not set or invalid, find any active repo
+  if (!currentRepo || currentRepo.status !== 'active') {
+    for (const repo of cachedRepos.values()) {
+      if (repo.status === 'active') {
+        // If we found an active one, check its space
+        if (repo.sizeBytes + requiredBytes <= repo.capacityLimitBytes) {
+          return { meta: repo, token: getTokenFromEnv(env, repo.tokenSecretName) };
+        }
+      }
+    }
+  }
+
+  // Fallback: Return whatever we found as current write, or first repo, or fallback
+  const finalRepo = currentRepo || cachedRepos.values().next().value as RepoMeta;
+  if (finalRepo) {
+    return { meta: finalRepo, token: getTokenFromEnv(env, finalRepo.tokenSecretName) };
   }
 
   return getFallbackRepo(env);

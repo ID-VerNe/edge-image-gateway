@@ -10,7 +10,7 @@
 
 ### 核心组件
 
-多仓库路由基于 [Cloudflare KV](../docs/configuration.md#kv-命名空间) 存储实现，由 [repoRouter.ts](../src/services/repoRouter.ts) 管理。
+多仓库路由基于 [Cloudflare KV](./configuration.md#kv-命名空间) 存储实现，由 [repoRouter.ts](../src/services/repoRouter.ts) 管理。
 
 ```
                  ┌───────────────────────┐

@@ -1,4 +1,24 @@
 export const ACTIONS = `
+  async function fetchWithTOTP(url, options = {}) {
+    let res = await fetch(url, options);
+    if (res.status === 403) {
+      const totp = prompt('Action requires TOTP verification. Please enter your 6-digit code:');
+      if (totp) {
+        if (options.method === 'DELETE') {
+          const u = new URL(url, window.location.origin);
+          u.searchParams.set('totp', totp);
+          return await fetch(u.toString(), options);
+        } else {
+          const body = JSON.parse(options.body || '{}');
+          body.totp = totp;
+          const newOptions = { ...options, body: JSON.stringify(body) };
+          return await fetch(url, newOptions);
+        }
+      }
+    }
+    return res;
+  }
+
   function showNewFolderModal() { 
     const modal = document.getElementById('newFolderModal');
     if(modal) modal.style.display = 'flex'; 
@@ -16,7 +36,7 @@ export const ACTIONS = `
     const path = currentPath ? \`\${currentPath}/\${n}\` : n;
     showLoader();
     try {
-      await fetch('/admin/api/mkdir', {
+      await fetchWithTOTP('/admin/api/mkdir', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ path })
@@ -32,7 +52,7 @@ export const ACTIONS = `
     if(!confirm(\`Delete this \${type}? \${type === 'dir' ? '(All contents will be lost)' : ''}\`)) return;
     showLoader();
     try {
-      await fetch('/admin/api/files/' + p + '?type=' + type, { method: 'DELETE' });
+      await fetchWithTOTP('/admin/api/files/' + p + '?type=' + type, { method: 'DELETE' });
     } catch(e) {}
     hideLoader(); loadFiles(currentPath);
   }
@@ -46,7 +66,7 @@ export const ACTIONS = `
     for (const p of selectedFiles) {
       updateProgress((i / selectedFiles.size) * 100, \`Deleting \${i+1}/\${selectedFiles.size}\`);
       try {
-        await fetch('/admin/api/files/' + p, { method: 'DELETE' });
+        await fetchWithTOTP('/admin/api/files/' + p, { method: 'DELETE' });
       } catch(e) {}
       i++;
     }
@@ -76,7 +96,7 @@ export const ACTIONS = `
     for (const p of selectedFiles) {
       updateProgress((i / selectedFiles.size) * 100, \`Moving \${i+1}/\${selectedFiles.size}\`);
       try {
-        await fetch('/admin/api/files/' + p + '/move', { 
+        await fetchWithTOTP('/admin/api/files/' + p + '/move', { 
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ targetDir })

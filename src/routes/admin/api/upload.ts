@@ -3,6 +3,7 @@ import { Buffer } from 'node:buffer';
 import { AppEnvironment } from '../../../types/env';
 import { resolveForWrite } from '../../../services/repoRouter';
 import { sha256 } from '../../../utils/hash';
+import { stripMetadata } from '../../../utils/imageProcessor';
 
 const uploadApi = new Hono<AppEnvironment>();
 
@@ -27,7 +28,11 @@ uploadApi.post('/', async (c) => {
       return c.json({ error: 'Unsupported file type' }, 400);
     }
 
-    const arrayBuffer = await file.arrayBuffer();
+    let arrayBuffer = await file.arrayBuffer();
+    
+    // Strip metadata for privacy if it's a JPEG or PNG
+    arrayBuffer = await stripMetadata(arrayBuffer, mimeType);
+
     const hash = await sha256(arrayBuffer);
 
     if (c.env.REPO_REGISTRY) {
@@ -52,7 +57,7 @@ uploadApi.post('/', async (c) => {
       path = `${yyyy}/${mm}/${hash.slice(0, 12)}.${ext}`;
     }
 
-    const repo = await resolveForWrite(c.env);
+    const repo = await resolveForWrite(c.env, file.size);
     const base64Content = Buffer.from(arrayBuffer).toString('base64');
     
     const githubUrl = `https://api.github.com/repos/${repo.meta.owner}/${repo.meta.name}/contents/${path}`;

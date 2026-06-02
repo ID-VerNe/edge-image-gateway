@@ -24,9 +24,37 @@ adminApp.route('/api/files', fileApi);
 adminApp.route('/api/upload', uploadApi);
 adminApp.route('/api/stats', statsApi);
 
-// Cache Purge (kept here as it's a single endpoint, or could move to stats)
+// Cache Purge
 adminApp.post('/api/cache/purge', async (c) => {
-  return c.json({ success: true, message: 'Cache purge request received' });
+  const zoneId = c.env.CF_ZONE_ID;
+  const apiToken = c.env.CF_API_TOKEN;
+
+  if (!zoneId || !apiToken) {
+    return c.json({ 
+      success: false, 
+      message: 'CF_ZONE_ID or CF_API_TOKEN not configured. Please set them as secrets.' 
+    }, 400);
+  }
+
+  try {
+    const cfRes = await fetch(`https://api.cloudflare.com/client/v4/zones/${zoneId}/purge_cache`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${apiToken}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ purge_everything: true })
+    });
+
+    if (!cfRes.ok) {
+      const errText = await cfRes.text();
+      return c.json({ success: false, message: 'Cloudflare API error', details: errText }, 500);
+    }
+
+    return c.json({ success: true, message: 'Global cache purge successful' });
+  } catch (err: any) {
+    return c.json({ success: false, message: err.message }, 500);
+  }
 });
 
 // --- Admin UI Entry Point ---

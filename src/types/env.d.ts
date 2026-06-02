@@ -19,6 +19,9 @@ export interface Bindings {
 
   // Secrets
   SIGN_SECRET: string;
+  ADMIN_TOTP_SECRET?: string;
+  CF_ZONE_ID?: string;
+  CF_API_TOKEN?: string;
 }
 
 export type AppEnvironment = {

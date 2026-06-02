@@ -2,12 +2,31 @@ import { Hono } from 'hono';
 import { Buffer } from 'node:buffer';
 import { AppEnvironment } from '../../../types/env';
 import { resolveForRead, resolveForWrite } from '../../../services/repoRouter';
+import { verifyTOTP } from '../../../utils/totp';
 
 const fileApi = new Hono<AppEnvironment>();
+
+/**
+ * Middleware-like helper to verify TOTP if secret is set
+ */
+const verifyAction = async (c: any, body?: any) => {
+  const secret = c.env.ADMIN_TOTP_SECRET;
+  if (!secret) return true; // Not enabled
+
+  const token = c.req.header('x-totp') || body?.totp;
+  if (!token) return false;
+
+  return await verifyTOTP(token, secret);
+};
 
 fileApi.post('/mkdir', async (c) => {
   try {
     const body = await c.req.json() as any;
+    
+    if (!(await verifyAction(c, body))) {
+      return c.json({ error: 'Invalid or missing TOTP code' }, 403);
+    }
+// ... rest of mkdir logic
     let path = (body.path || '').replace(/^\/+|\/+$/g, '');
     if (!path) return c.json({ error: 'Path is required' }, 400);
 
@@ -78,6 +97,11 @@ fileApi.delete('/*', async (c) => {
     // Remove /admin/api/files/ prefix
     const path = reqUrl.pathname.replace('/admin/api/files/', '');
     const isDir = c.req.query('type') === 'dir';
+    const totp = c.req.query('totp');
+
+    if (!(await verifyAction(c, { totp }))) {
+      return c.json({ error: 'Invalid or missing TOTP code' }, 403);
+    }
     
     const repo = await resolveForRead(path, c.env);
 
@@ -164,9 +188,15 @@ fileApi.delete('/*', async (c) => {
 
 fileApi.post('/*/move', async (c) => {
   try {
+    const body = await c.req.json() as any;
+    
+    if (!(await verifyAction(c, body))) {
+      return c.json({ error: 'Invalid or missing TOTP code' }, 403);
+    }
+
     const reqUrl = new URL(c.req.url);
     const sourcePath = reqUrl.pathname.replace('/admin/api/files/', '').replace('/move', '');
-    const body = await c.req.json() as any;
+    // Remove duplication of body parsing if already done
     const targetDir = (body.targetDir || '').replace(/^\/+|\/+$/g, '');
     const fileName = sourcePath.split('/').pop() || '';
     const targetPath = targetDir ? `${targetDir}/${fileName}` : fileName;
@@ -175,6 +205,7 @@ fileApi.post('/*/move', async (c) => {
 
     const sourceRepo = await resolveForRead(sourcePath, c.env);
     
+    // 1. Fetch source content
     const getUrl = `https://api.github.com/repos/${sourceRepo.meta.owner}/${sourceRepo.meta.name}/contents/${sourcePath}?ref=${sourceRepo.meta.branch}`;
     const getRes = await fetch(getUrl, {
       headers: {
@@ -186,10 +217,13 @@ fileApi.post('/*/move', async (c) => {
 
     if (!getRes.ok) return c.json({ error: 'Source file not found' }, 404);
     const sourceData: any = await getRes.json();
+    const fileSize = sourceData.size || 0;
 
-    const targetRepo = await resolveForWrite(c.env);
+    // 2. Resolve target repo with capacity check
+    const targetRepo = await resolveForWrite(c.env, fileSize);
     const putUrl = `https://api.github.com/repos/${targetRepo.meta.owner}/${targetRepo.meta.name}/contents/${targetPath}`;
     
+    // 3. Write to target
     const putRes = await fetch(putUrl, {
       method: 'PUT',
       headers: {
@@ -210,6 +244,28 @@ fileApi.post('/*/move', async (c) => {
       return c.json({ error: 'Failed to write target file', details: errText }, 500);
     }
 
+    // 4. Update KV Index (Critical point: after this, path points to new location)
+    if (c.env.REPO_REGISTRY) {
+      await c.env.REPO_REGISTRY.put(`path::${targetPath}`, targetRepo.meta.id);
+      
+      // Update stats for both repos
+      targetRepo.meta.sizeBytes += fileSize;
+      targetRepo.meta.fileCount += 1;
+      await c.env.REPO_REGISTRY.put(`repo::${targetRepo.meta.id}`, JSON.stringify(targetRepo.meta));
+
+      if (sourceRepo.meta.id !== targetRepo.meta.id) {
+        sourceRepo.meta.sizeBytes = Math.max(0, sourceRepo.meta.sizeBytes - fileSize);
+        sourceRepo.meta.fileCount = Math.max(0, sourceRepo.meta.fileCount - 1);
+        await c.env.REPO_REGISTRY.put(`repo::${sourceRepo.meta.id}`, JSON.stringify(sourceRepo.meta));
+      }
+      
+      // Only delete old path index if it's actually different
+      if (sourcePath !== targetPath) {
+        await c.env.REPO_REGISTRY.delete(`path::${sourcePath}`);
+      }
+    }
+
+    // 5. Delete from source
     await fetch(getUrl, {
       method: 'DELETE',
       headers: {
@@ -225,9 +281,14 @@ fileApi.post('/*/move', async (c) => {
       })
     });
 
-    if (c.env.REPO_REGISTRY) {
-      await c.env.REPO_REGISTRY.delete(`path::${sourcePath}`);
-      await c.env.REPO_REGISTRY.put(`path::${targetPath}`, targetRepo.meta.id);
+    // 6. Clear edge cache for this path
+    try {
+      const cache = caches.default;
+      const origin = new URL(c.req.url).origin;
+      // We don't know the full set of query params, but we can at least try to purge the base URL
+      await cache.delete(new Request(`${origin}/${sourcePath}`));
+    } catch (e) {
+      // Cache delete is best-effort
     }
 
     return c.json({ success: true, targetPath });
