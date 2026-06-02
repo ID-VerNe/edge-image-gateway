@@ -85,7 +85,11 @@ adminApp.get('/', (c) => {
 
       ${PARTIALS.modals}
 
-      <script>${SCRIPTS}</script>
+      <script>
+        window.DEFAULT_GITHUB_USER = "${c.env.GITHUB_USER}";
+        window.DEFAULT_GITHUB_REPO = "${c.env.GITHUB_REPO}";
+        ${SCRIPTS}
+      </script>
     </body>
     </html>
   `);

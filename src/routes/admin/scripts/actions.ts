@@ -112,7 +112,13 @@ export const ACTIONS = `
 
   function showAddRepoModal() { 
     const modal = document.getElementById('addRepoModal');
-    if(modal) modal.style.display = 'flex'; 
+    if(modal) {
+      document.getElementById('repoOwner').value = window.DEFAULT_GITHUB_USER || '';
+      document.getElementById('repoName').value = window.DEFAULT_GITHUB_REPO || '';
+      document.getElementById('repoBranch').value = 'main';
+      document.getElementById('repoSecret').value = 'GITHUB_TOKEN';
+      modal.style.display = 'flex'; 
+    }
   }
   function hideAddRepoModal() { 
     const modal = document.getElementById('addRepoModal');
