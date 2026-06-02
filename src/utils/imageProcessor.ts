@@ -20,7 +20,7 @@ export async function stripMetadata(buffer: ArrayBuffer, mimeType: string): Prom
  */
 function stripJpegMetadata(data: Uint8Array): ArrayBuffer {
   // JPEG must start with FF D8
-  if (data[0] !== 0xFF || data[1] !== 0xD8) return data.buffer;
+  if (data[0] !== 0xFF || data[1] !== 0xD8) return data.buffer as ArrayBuffer;
 
   const result: number[] = [0xFF, 0xD8];
   let i = 2;
@@ -73,7 +73,7 @@ function stripPngMetadata(data: Uint8Array): ArrayBuffer {
   // PNG Signature: 89 50 4E 47 0D 0A 1A 0A
   const signature = [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A];
   for (let i = 0; i < 8; i++) {
-    if (data[i] !== signature[i]) return data.buffer;
+    if (data[i] !== signature[i]) return data.buffer as ArrayBuffer;
   }
 
   const result: number[] = [...signature];

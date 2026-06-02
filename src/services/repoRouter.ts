@@ -94,6 +94,29 @@ export const resolveForRead = async (path: string, env: Bindings): Promise<Resol
     return getFallbackRepo(env);
   }
 
+  // 1. Check exact path in KV (for files)
+  if (env.REPO_REGISTRY) {
+    const repoId = await env.REPO_REGISTRY.get(`path::${path}`);
+    if (repoId && cachedRepos.has(repoId)) {
+      const repo = cachedRepos.get(repoId)!;
+      return { meta: repo, token: getTokenFromEnv(env, repo.tokenSecretName) };
+    }
+
+    // 2. If not found and might be a directory, try prefix search in KV
+    if (path) {
+      const normalizedPath = path.endsWith('/') ? path : `${path}/`;
+      const { keys } = await env.REPO_REGISTRY.list({ prefix: `path::${normalizedPath}`, limit: 1 });
+      if (keys.length > 0) {
+        const repoId = await env.REPO_REGISTRY.get(keys[0].name);
+        if (repoId && cachedRepos.has(repoId)) {
+          const repo = cachedRepos.get(repoId)!;
+          return { meta: repo, token: getTokenFromEnv(env, repo.tokenSecretName) };
+        }
+      }
+    }
+  }
+
+  // 3. Check read rules
   if (cachedReadRules && cachedReadRules.length > 0) {
     // Ensure path starts with / for prefix matching if rules use it
     const matchPath = path.startsWith('/') ? path : `/${path}`;

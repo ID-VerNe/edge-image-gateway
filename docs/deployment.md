@@ -177,7 +177,8 @@ npx wrangler deploy --env preview
 2. 进入 Zero Trust → Access → Applications
 3. 点击 "Add an application"，选择 "Self-hosted"
 4. 配置应用信息：
-   - **Application name**: `Picbed Admin`
+   - **Application name**: `Edge Image Gateway`
+
    - **Session Duration**: `24h`
    - **Application domain**: 选择你的 Worker 域名
    - **Path**: `/admin`

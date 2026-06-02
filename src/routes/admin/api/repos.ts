@@ -1,6 +1,7 @@
 import { Hono } from 'hono';
 import { AppEnvironment } from '../../../types/env';
-import { listAllRepos, RepoMeta, getCurrentWriteId } from '../../../services/repoRouter';
+import { listAllRepos, RepoMeta, getCurrentWriteId, getTokenFromEnv } from '../../../services/repoRouter';
+import { Buffer } from 'node:buffer';
 
 const repoApi = new Hono<AppEnvironment>();
 
@@ -10,6 +11,24 @@ repoApi.get('/', async (c) => {
   return c.json({ repos, currentWriteId });
 });
 
+repoApi.post('/route/write', async (c) => {
+  if (!c.env.REPO_REGISTRY) return c.json({ error: 'KV not configured' }, 400);
+  const { repo } = await c.req.json() as any;
+  if (!repo) return c.json({ error: 'Repo ID is required' }, 400);
+
+  // If repo is 'fallback', we just delete the override
+  if (repo === 'fallback') {
+    await c.env.REPO_REGISTRY.delete('route::current_write');
+  } else {
+    // Verify repo exists
+    const exists = await c.env.REPO_REGISTRY.get(`repo::${repo}`);
+    if (!exists) return c.json({ error: 'Repository not found' }, 404);
+    await c.env.REPO_REGISTRY.put('route::current_write', repo);
+  }
+
+  return c.json({ success: true, currentWriteId: repo });
+});
+
 repoApi.post('/', async (c) => {
   if (!c.env.REPO_REGISTRY) return c.json({ error: 'KV not configured' }, 400);
   const body = await c.req.json() as any;
@@ -17,7 +36,65 @@ repoApi.post('/', async (c) => {
   
   if (!id || !owner || !name) return c.json({ error: 'Missing required fields' }, 400);
 
-  // Check for duplicate ID
+  const token = getTokenFromEnv(c.env, tokenSecretName || 'GITHUB_TOKEN');
+  const userAgent = 'cf-worker-edge-image-gateway';
+
+  // 1. Check if physical repo exists
+  const checkUrl = `https://api.github.com/repos/${owner}/${name}`;
+  const checkRes = await fetch(checkUrl, {
+    headers: {
+      'Authorization': `Bearer ${token}`,
+      'Accept': 'application/vnd.github.v3+json',
+      'User-Agent': userAgent
+    }
+  });
+
+  if (checkRes.status === 404) {
+    // 2. Try to create the repo if missing
+    const createRes = await fetch('https://api.github.com/user/repos', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Accept': 'application/vnd.github.v3+json',
+        'User-Agent': userAgent,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        name: name,
+        private: true,
+        description: 'Image storage for Edge Image Gateway',
+        auto_init: false
+      })
+    });
+
+    if (!createRes.ok) {
+      const err = await createRes.text();
+      return c.json({ 
+        error: `Repository "${owner}/${name}" not found and auto-creation failed.`, 
+        details: err,
+        suggestion: 'Please create the private repository manually on GitHub or check your Token permissions (needs "repo" scope).' 
+      }, 400);
+    }
+
+    // 3. Initialize with .keep file to create the branch
+    const initBranch = branch || 'main';
+    await fetch(`https://api.github.com/repos/${owner}/${name}/contents/.keep`, {
+      method: 'PUT',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Accept': 'application/vnd.github.v3+json',
+        'User-Agent': userAgent,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        message: 'Initial commit via Edge Image Gateway',
+        content: Buffer.from('Storage initialized').toString('base64'),
+        branch: initBranch
+      })
+    });
+  }
+
+  // 4. Register in KV
   const existingId = await c.env.REPO_REGISTRY.get(`repo::${id}`);
   if (existingId) return c.json({ error: 'Repository ID already exists' }, 400);
 

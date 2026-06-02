@@ -1,7 +1,7 @@
 export const PARTIALS = {
   header: (userEmail: string) => `
     <header>
-      <div class="logo">Picbed Admin</div>
+      <div class="logo">Edge Image Gateway</div>
       <div class="user-info">User: <strong>${userEmail}</strong></div>
     </header>
   `,
@@ -151,6 +151,30 @@ export const PARTIALS = {
         <div style="display:flex; justify-content:flex-end; gap:0.5rem; margin-top:1.5rem;">
           <button class="btn" onclick="hideEditRepoModal()">Cancel</button>
           <button class="btn btn-primary" onclick="updateRepo()">Save Changes</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="modal" id="shareModal">
+      <div class="modal-content">
+        <h3 style="margin-top:0">Generate Signed Link</h3>
+        <input type="hidden" id="shareFilePath">
+        <div style="margin-bottom:1rem;">
+          <label style="display:block; font-size:0.875rem; margin-bottom:0.25rem;">Expiration</label>
+          <select id="shareExpiry" style="width:100%; padding:0.5rem; border:1px solid var(--kami-border); border-radius:6px;">
+            <option value="3600">1 Hour</option>
+            <option value="86400" selected>24 Hours</option>
+            <option value="604800">7 Days</option>
+            <option value="2592000">30 Days</option>
+          </select>
+        </div>
+        <div id="shareResult" style="display:none; margin-bottom:1rem;">
+          <label style="display:block; font-size:0.875rem; margin-bottom:0.25rem;">Signed URL</label>
+          <textarea id="shareUrl" readonly style="width:100%; height:80px; padding:0.5rem; border:1px solid var(--kami-border); border-radius:6px; font-size:0.75rem; background:var(--github-gray); resize:none;"></textarea>
+        </div>
+        <div style="display:flex; justify-content:flex-end; gap:0.5rem;">
+          <button class="btn" onclick="hideShareModal()">Close</button>
+          <button class="btn btn-primary" id="btn-generate-share" onclick="generateShareLink()">Generate & Copy</button>
         </div>
       </div>
     </div>

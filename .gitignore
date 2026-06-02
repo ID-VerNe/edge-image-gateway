@@ -5,3 +5,4 @@ dist
 .env
 wrangler.toml
 *plan*.md
+test-site/

@@ -140,12 +140,14 @@ export const CSS = `
   .file-name.file { color: var(--kami-blue); }
   .file-meta { color: #57606a; }
   
-  .file-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 1rem; }
-  .grid-item { border: 1px solid var(--kami-border); border-radius: 6px; overflow: hidden; }
-  .folder-grid-item:hover { background: #ebedf0 !important; border-color: var(--kami-blue); }
-  .grid-preview { width: 100%; height: 160px; object-fit: contain; background: #f6f8fa; cursor: pointer; display: block; }
-  .grid-info { padding: 0.5rem; border-top: 1px solid var(--kami-border); }
-  .grid-name { font-size: 0.75rem; font-weight: 500; margin-bottom: 0.5rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--kami-blue); }
+  .file-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 1rem; }
+  .grid-item { border: 1px solid var(--kami-border); border-radius: 6px; overflow: hidden; display: flex; flex-direction: column; height: 215px; background: #fff; }
+  .folder-grid-item:hover { border-color: var(--kami-blue); }
+  .grid-preview { width: 100%; height: 160px; object-fit: contain; background: var(--github-gray); cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 3rem; flex-shrink: 0; }
+  .grid-info { padding: 0.5rem; border-top: 1px solid var(--kami-border); flex: 1; display: flex; flex-direction: column; justify-content: space-between; min-height: 0; }
+  .grid-name { font-size: 0.75rem; font-weight: 500; margin-bottom: 0.4rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--kami-blue); }
+  .grid-actions { display: flex; gap: 0.5rem; }
+  .btn-mini { padding: 1px 4px; min-width: 45px; justify-content: center; font-size: 0.75rem; }
 
   #toast { position: fixed; bottom: 2rem; right: 2rem; background: #24292f; color: #fff; padding: 0.75rem 1.25rem; border-radius: 6px; font-size: 0.8125rem; display: none; z-index: 1000; }
   .loading-overlay { position: fixed; inset: 0; background: rgba(255,255,255,0.7); display: none; flex-direction: column; align-items: center; justify-content: center; z-index: 200; }

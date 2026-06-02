@@ -1,9 +1,10 @@
 import { Hono } from 'hono';
 import { Buffer } from 'node:buffer';
 import { AppEnvironment } from '../../../types/env';
-import { resolveForWrite } from '../../../services/repoRouter';
+import { resolveForWrite, resolveForRead } from '../../../services/repoRouter';
 import { sha256 } from '../../../utils/hash';
 import { stripMetadata } from '../../../utils/imageProcessor';
+import { githubService } from '../../../services/github';
 
 const uploadApi = new Hono<AppEnvironment>();
 
@@ -38,7 +39,17 @@ uploadApi.post('/', async (c) => {
     if (c.env.REPO_REGISTRY) {
       const existing = await c.env.REPO_REGISTRY.get(`hash::${hash}`, 'json');
       if (existing) {
-        return c.json({ ...existing as object, deduplicated: true });
+        const meta = existing as any;
+        // Verify physical existence on GitHub to prevent stale deduplication
+        const repoForOld = await resolveForRead(meta.path, c.env);
+        const exists = await githubService.fileExists(meta.path, repoForOld);
+        
+        if (exists) {
+          return c.json({ ...meta, deduplicated: true });
+        } else {
+          // KV entry is stale, physical file is gone. Remove KV entry and proceed with upload.
+          await c.env.REPO_REGISTRY.delete(`hash::${hash}`);
+        }
       }
     }
 
@@ -46,16 +57,12 @@ uploadApi.post('/', async (c) => {
     let ext = file.name.split('.').pop() || 'png';
     ext = ext.toLowerCase();
     
-    let path = '';
-    if (targetDir) {
-      let baseName = file.name.replace(/\.[^/.]+$/, "");
-      path = `${targetDir}/${baseName}-${hash.slice(0, 6)}.${ext}`;
-    } else {
-      const now = new Date();
-      const yyyy = now.getUTCFullYear();
-      const mm = String(now.getUTCMonth() + 1).padStart(2, '0');
-      path = `${yyyy}/${mm}/${hash.slice(0, 12)}.${ext}`;
-    }
+    const baseName = file.name.replace(/\.[^/.]+$/, "");
+    // Generate a unique suffix: short hash (4 chars) + timestamp-based ID (6 chars)
+    // This provides a high degree of uniqueness even for the same filename uploaded at different times
+    const ts = Date.now().toString(36).slice(-6);
+    const fileName = `${baseName}-${hash.slice(0, 4)}${ts}.${ext}`;
+    const path = targetDir ? `${targetDir}/${fileName}` : fileName;
 
     const repo = await resolveForWrite(c.env, file.size);
     const base64Content = Buffer.from(arrayBuffer).toString('base64');
