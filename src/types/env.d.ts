@@ -17,6 +17,8 @@ export interface Bindings {
   EMERGENCY_LOCKDOWN: string; // "true" or "false"
   ADMIN_EMAILS: string; // comma-separated whitelist
 
+  ANALYTICS_ENGINE?: AnalyticsEngineDataset;
+
   // Secrets
   SIGN_SECRET: string;
   ADMIN_TOTP_SECRET?: string;

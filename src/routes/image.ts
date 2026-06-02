@@ -66,7 +66,18 @@ export const handleImageRequest = async (c: Context<AppEnvironment>) => {
   try {
     const cachedResponse = await cache.match(cacheKey);
     if (cachedResponse) {
-      logger.info('cache_hit', { path, ms: Date.now() - startTime });
+      const duration = Date.now() - startTime;
+      logger.info('cache_hit', { path, ms: duration });
+      
+      // Metrics for Cache Hit
+      logger.metrics(c, {
+        cacheStatus: 'HIT',
+        statusCode: cachedResponse.status,
+        durationMs: duration,
+        hasResize: !!(width || height || quality || fit),
+        pathPrefix: path.split('/')[0] || 'root'
+      });
+
       const newResponse = new Response(cachedResponse.body, cachedResponse);
       newResponse.headers.set('X-Cache', 'HIT');
       return newResponse;
@@ -174,7 +185,19 @@ export const handleImageRequest = async (c: Context<AppEnvironment>) => {
       }
     }
 
-    logger.info('request_done', { path, status, ms: Date.now() - startTime });
+    const duration = Date.now() - startTime;
+    logger.info('request_done', { path, status, ms: duration });
+    
+    // Structured Metrics for Analytics Engine
+    logger.metrics(c, {
+      repoId: repo?.meta?.id,
+      cacheStatus: 'MISS',
+      statusCode: status,
+      durationMs: duration,
+      hasResize: !!(width || height || quality || fit),
+      pathPrefix: path.split('/')[0] || 'root'
+    });
+
     return outputResponse;
 
   } catch (error: any) {

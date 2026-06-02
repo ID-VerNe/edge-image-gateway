@@ -7,5 +7,30 @@ export const logger = {
   },
   warn: (event: string, data: Record<string, any>) => {
     console.warn(JSON.stringify({ ts: new Date().toISOString(), level: 'warn', event, ...data }));
+  },
+  metrics: (c: any, data: {
+    repoId?: string;
+    cacheStatus: 'HIT' | 'MISS' | 'BYPASS';
+    statusCode: number;
+    durationMs: number;
+    hasResize: boolean;
+    pathPrefix: string;
+  }) => {
+    const ae = c.env.ANALYTICS_ENGINE;
+    if (ae) {
+      ae.writeDataPoint({
+        blobs: [
+          data.pathPrefix,
+          data.repoId || 'unknown',
+          data.cacheStatus,
+          data.hasResize ? 'true' : 'false'
+        ],
+        doubles: [
+          data.statusCode,
+          data.durationMs
+        ],
+        indexes: [data.repoId || 'unknown']
+      });
+    }
   }
 };
