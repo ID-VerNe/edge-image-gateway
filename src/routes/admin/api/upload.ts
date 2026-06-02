@@ -108,7 +108,15 @@ uploadApi.post('/', async (c) => {
     const origin = new URL(c.req.url).origin;
     const fullUrl = `${origin}${result.url}`;
 
-    return c.json({ ...result, fullUrl, deduplicated: false });
+    // If request has Authorization header, it's likely an API tool like PicGo
+    // In this case, we return the fullUrl in the 'url' field as expected by PicGo
+    const isApiRequest = !!c.req.header('Authorization');
+    return c.json({ 
+      ...result, 
+      fullUrl, 
+      url: isApiRequest ? fullUrl : result.url,
+      deduplicated: false 
+    });
 
   } catch (err: any) {
     return c.json({ error: 'Internal upload error', message: err.message }, 500);

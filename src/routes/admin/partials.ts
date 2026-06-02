@@ -14,6 +14,7 @@ export const PARTIALS = {
         </div>
       </div>
       <div class="sidebar-footer">
+        <div class="tree-item" id="nav-tokens" onclick="switchView('tokens')">🔑 API Tokens</div>
         <div class="tree-item" id="nav-settings" onclick="switchView('repos')">⚙️ Settings</div>
       </div>
     </aside>
@@ -71,6 +72,20 @@ export const PARTIALS = {
       </div>
     </main>
   `,
+  mainTokens: `
+    <main id="main-tokens" style="display: none;">
+      <div class="toolbar">
+        <div class="breadcrumbs"><span class="breadcrumb-item current">API Tokens (for PicGo / External)</span></div>
+        <div class="actions">
+          <button class="btn btn-primary" onclick="showAddTokenModal()">Generate New Token</button>
+        </div>
+      </div>
+      <div class="content-area">
+         <p style="font-size:0.875rem; color:#57606a; margin-bottom:2rem;">Use these tokens to authenticate external tools like PicGo. <br>Endpoint: <code>/admin/api/upload</code> | Header: <code>Authorization: Bearer &lt;token&gt;</code></p>
+         <div id="token-list" class="file-list-card"></div>
+      </div>
+    </main>
+  `,
   modals: `
     <div id="toast"></div>
     <div class="loading-overlay" id="global-loader">
@@ -81,6 +96,21 @@ export const PARTIALS = {
       <div class="progress-text" id="upload-progress-text"></div>
     </div>
     <div id="dropzone"><h2>Drop to upload</h2></div>
+
+    <div class="modal" id="addTokenModal">
+      <div class="modal-content">
+        <h3 style="margin-top:0">Generate API Token</h3>
+        <input type="text" id="tokenName" placeholder="Token name (e.g. PicGo Laptop)" style="width:100%; padding:0.5rem; margin-bottom:1rem; border:1px solid var(--kami-border); border-radius:6px;">
+        <div id="tokenDisplay" style="display:none; margin-bottom:1rem; padding:1rem; background:#fffbdd; border:1px solid #d0d7de; border-radius:6px; word-break:break-all; font-family:monospace; font-size:0.875rem;">
+          <div style="font-weight:600; margin-bottom:0.5rem;">Copy this token now. You won't see it again!</div>
+          <div id="tokenValue" style="color:var(--kami-blue); font-weight:600;"></div>
+        </div>
+        <div style="display:flex; justify-content:flex-end; gap:0.5rem;">
+          <button class="btn" id="btnAddTokenCancel" onclick="hideAddTokenModal()">Cancel</button>
+          <button class="btn btn-primary" id="btnGenerateToken" onclick="generateToken()">Generate</button>
+        </div>
+      </div>
+    </div>
 
     <div class="modal" id="newFolderModal">
       <div class="modal-content">

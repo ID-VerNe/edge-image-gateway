@@ -125,6 +125,10 @@ export const NAVIGATION = `
     if(v === 'repos') {
       const settingsNav = document.getElementById('nav-settings');
       if(settingsNav) settingsNav.classList.add('active');
+    } else if(v === 'tokens') {
+      const tokensNav = document.getElementById('nav-tokens');
+      if(tokensNav) tokensNav.classList.add('active');
+      if(typeof loadTokens === 'function') loadTokens();
     } else if(v === 'files' && !currentPath) {
        const rootNav = document.querySelector('.tree-item.root');
        if(rootNav) rootNav.classList.add('active');

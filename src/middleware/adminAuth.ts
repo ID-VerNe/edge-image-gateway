@@ -6,12 +6,23 @@ export const adminAuthGuard: MiddlewareHandler<AppEnvironment> = async (c, next)
   const adminEmailsStr = c.env.ADMIN_EMAILS || '';
   const adminEmails = adminEmailsStr.split(',').map(e => e.trim().toLowerCase()).filter(Boolean);
 
-  // 1. Check Cloudflare Access Header
+  // 1. Check API Token (Authorization: Bearer <token>)
+  const authHeader = c.req.header('Authorization');
+  if (authHeader?.startsWith('Bearer ') && c.env.REPO_REGISTRY) {
+    const token = authHeader.substring(7);
+    const tokenInfo = await c.env.REPO_REGISTRY.get(`auth::token::\${token}`, 'json');
+    if (tokenInfo) {
+      // Valid API Token
+      return await next();
+    }
+  }
+
+  // 2. Check Cloudflare Access Header
   const cfAccessEmail = c.req.header('Cf-Access-Authenticated-User-Email')?.trim().toLowerCase();
-  
-  // 2. Check Session Cookie
+
+  // 3. Check Session Cookie
   const sessionToken = getCookie(c, 'admin_session');
-  
+
   let isAuthenticated = false;
 
   if (cfAccessEmail && adminEmails.includes(cfAccessEmail)) {
@@ -28,13 +39,7 @@ export const adminAuthGuard: MiddlewareHandler<AppEnvironment> = async (c, next)
     isAuthenticated = true;
   }
 
-  // If running locally without CF Access, we can optionally allow a bypass or fallback 
-  // but for production security, we enforce the check.
-  // For development (if no ADMIN_EMAILS are configured), we could bypass, 
-  // but let's be strict or rely on a dev header.
   if (adminEmails.length === 0) {
-    // If not configured, we allow it only if running in a dev environment? 
-    // It's safer to deny access.
     return c.json({ error: 'Unauthorized: Admin not configured' }, 401);
   }
 

@@ -89,6 +89,7 @@ adminApp.get('/', (c) => {
         ${PARTIALS.sidebar}
         ${PARTIALS.mainFiles}
         ${PARTIALS.mainRepos}
+        ${PARTIALS.mainTokens}
       </div>
 
       ${PARTIALS.modals}
