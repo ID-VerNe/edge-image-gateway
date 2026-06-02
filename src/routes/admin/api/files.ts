@@ -2,35 +2,17 @@ import { Hono } from 'hono';
 import { Buffer } from 'node:buffer';
 import { AppEnvironment } from '../../../types/env';
 import { resolveForRead, resolveForWrite } from '../../../services/repoRouter';
-import { verifyTOTP } from '../../../utils/totp';
 
 const fileApi = new Hono<AppEnvironment>();
-
-/**
- * Middleware-like helper to verify TOTP if secret is set
- */
-const verifyAction = async (c: any, body?: any) => {
-  const secret = c.env.ADMIN_TOTP_SECRET;
-  if (!secret) return true; // Not enabled
-
-  const token = c.req.header('x-totp') || body?.totp;
-  if (!token) return false;
-
-  return await verifyTOTP(token, secret);
-};
 
 fileApi.post('/mkdir', async (c) => {
   try {
     const body = await c.req.json() as any;
-    
-    if (!(await verifyAction(c, body))) {
-      return c.json({ error: 'Invalid or missing TOTP code' }, 403);
-    }
-// ... rest of mkdir logic
     let path = (body.path || '').replace(/^\/+|\/+$/g, '');
     if (!path) return c.json({ error: 'Path is required' }, 400);
 
     const fullPath = `${path}/.keep`;
+
     const repo = await resolveForWrite(c.env);
     
     const githubUrl = `https://api.github.com/repos/${repo.meta.owner}/${repo.meta.name}/contents/${fullPath}`;
@@ -97,11 +79,6 @@ fileApi.delete('/*', async (c) => {
     // Remove /admin/api/files/ prefix
     const path = reqUrl.pathname.replace('/admin/api/files/', '');
     const isDir = c.req.query('type') === 'dir';
-    const totp = c.req.query('totp');
-
-    if (!(await verifyAction(c, { totp }))) {
-      return c.json({ error: 'Invalid or missing TOTP code' }, 403);
-    }
     
     const repo = await resolveForRead(path, c.env);
 
@@ -189,11 +166,6 @@ fileApi.delete('/*', async (c) => {
 fileApi.post('/*/move', async (c) => {
   try {
     const body = await c.req.json() as any;
-    
-    if (!(await verifyAction(c, body))) {
-      return c.json({ error: 'Invalid or missing TOTP code' }, 403);
-    }
-
     const reqUrl = new URL(c.req.url);
     const sourcePath = reqUrl.pathname.replace('/admin/api/files/', '').replace('/move', '');
     // Remove duplication of body parsing if already done

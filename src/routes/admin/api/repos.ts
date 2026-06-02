@@ -1,7 +1,6 @@
 import { Hono } from 'hono';
 import { AppEnvironment } from '../../../types/env';
 import { listAllRepos, RepoMeta, getCurrentWriteId } from '../../../services/repoRouter';
-import { verifyTOTP } from '../../../utils/totp';
 
 const repoApi = new Hono<AppEnvironment>();
 
@@ -104,12 +103,7 @@ repoApi.put('/:id', async (c) => {
 repoApi.delete('/:id', async (c) => {
   if (!c.env.REPO_REGISTRY) return c.json({ error: 'KV not configured' }, 400);
   const id = c.req.param('id');
-  const totp = c.req.query('totp');
   const deleteAllLinked = c.req.query('all') === 'true';
-
-  if (!await verifyTOTP(totp || '', c.env.ADMIN_TOTP_SECRET)) {
-    return c.json({ error: 'Invalid or missing TOTP code' }, 403);
-  }
 
   const existingStr = await c.env.REPO_REGISTRY.get(`repo::${id}`);
   if (!existingStr) return c.json({ error: 'Repo not found' }, 404);
