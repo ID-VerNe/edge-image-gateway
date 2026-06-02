@@ -7,6 +7,7 @@ import { handleImageRequest } from './routes/image';
 import adminApp from './routes/admin';
 import { syncCapacity } from './services/cron';
 import { logger } from './utils/logger';
+import { alertThrottled } from './utils/notifications';
 
 const app = new Hono<AppEnvironment>();
 
@@ -33,6 +34,13 @@ app.use('/*', signatureGuard);
 app.onError((err, c) => {
   console.error('Global error:', err);
   logger.captureError(c, err, { path: c.req.path, method: c.req.method });
+
+  // Telegram Alert for 5xx
+  c.executionCtx.waitUntil(alertThrottled('global_500', 
+    `🔥 <b>Critical System Error (500)</b>\nPath: <code>\${c.req.path}</code>\nMethod: <b>\${c.req.method}</b>\nError: <code>\${err.message}</code>`,
+    c.env, 1
+  ));
+
   return c.json({
     error: 'Unhandled Exception',
     message: err.message,
@@ -51,7 +59,7 @@ export default {
   scheduled: async (event: any, env: AppEnvironment['Bindings'], ctx: any) => {
     ctx.waitUntil((async () => {
       try {
-        const results = await syncCapacity(env);
+        const results = await syncCapacity(env, ctx);
         logger.info('cron_sync_capacity', { results });
       } catch (err: any) {
         logger.error('cron_sync_capacity_error', { message: err.message });

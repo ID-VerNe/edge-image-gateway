@@ -42,7 +42,7 @@ export const handleImageRequest = async (c: Context<AppEnvironment>) => {
     const expectedSig = await generateHMAC(path, c.env.SIGN_SECRET);
     if (internalSig === expectedSig) {
       const repo = await resolveForRead(path, c.env, (p) => c.executionCtx.waitUntil(p));
-      const resp = await fetchFromGitHub(path, repo);
+      const resp = await fetchFromGitHub(path, repo, undefined, c.env, c.executionCtx);
       const newResp = new Response(resp.body, resp);
       newResp.headers.set('Content-Type', getMimeType(path));
       newResp.headers.delete('Content-Disposition');
@@ -112,11 +112,11 @@ export const handleImageRequest = async (c: Context<AppEnvironment>) => {
       // If loopback fails (e.g. 415/400 because plan doesn't support it), fallback to original
       if (finalResponse.status === 415 || finalResponse.status === 400) {
         const repo = await resolveForRead(path, c.env, (p) => c.executionCtx.waitUntil(p));
-        finalResponse = await fetchFromGitHub(path, repo);
+        finalResponse = await fetchFromGitHub(path, repo, undefined, c.env, c.executionCtx);
       }
     } else {
       const repo = await resolveForRead(path, c.env, (p) => c.executionCtx.waitUntil(p));
-      finalResponse = await fetchFromGitHub(path, repo);
+      finalResponse = await fetchFromGitHub(path, repo, undefined, c.env, c.executionCtx);
     }
 
     // 5. Handle errors and caching strategies

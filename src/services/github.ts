@@ -1,5 +1,6 @@
 import { ResolvedRepo } from './repoRouter';
 import { logger } from '../utils/logger';
+import { alertThrottled } from '../utils/notifications';
 
 export interface GitHubItem {
   name: string;
@@ -16,40 +17,45 @@ export interface GitHubItem {
 export class GitHubService {
   private userAgent = 'cf-worker-edge-image-gateway';
 
-  private async request(url: string, repo: ResolvedRepo, options: RequestInit = {}): Promise<Response> {
+  private async request(url: string, repo: ResolvedRepo, options: RequestInit = {}, env?: any, ctx?: any): Promise<Response> {
     const headers = new Headers(options.headers);
     headers.set('Authorization', `Bearer ${repo.token}`);
     headers.set('Accept', 'application/vnd.github.v3+json');
     headers.set('User-Agent', this.userAgent);
 
-    return fetch(url, { ...options, headers });
+    const res = await fetch(url, { ...options, headers });
+
+    // Monitor Rate Limit
+    const remaining = res.headers.get('X-RateLimit-Remaining');
+    if (remaining && parseInt(remaining, 10) < 1000 && env) {
+      alertThrottled('gh_rate_limit', 
+        `🛑 <b>GitHub API Rate Limit Warning</b>\nRemaining: <b>${remaining}</b> / ${res.headers.get('X-RateLimit-Limit')}\nReset: ${new Date(parseInt(res.headers.get('X-RateLimit-Reset') || '0', 10) * 1000).toLocaleString()}`,
+        env, 2, ctx
+      );
+    }
+
+    return res;
   }
 
-  async fetchRaw(path: string, repo: ResolvedRepo, cfOptions?: RequestInitCfProperties): Promise<Response> {
+  async fetchRaw(path: string, repo: ResolvedRepo, cfOptions?: RequestInitCfProperties, env?: any, ctx?: any): Promise<Response> {
     const url = `https://api.github.com/repos/${repo.meta.owner}/${repo.meta.name}/contents/${path}?ref=${repo.meta.branch}`;
-    const headers = new Headers({
-      'Authorization': `Bearer ${repo.token}`,
-      'Accept': 'application/vnd.github.raw',
-      'User-Agent': this.userAgent
-    });
-
-    return fetch(url, { method: 'GET', headers, cf: cfOptions });
+    return this.request(url, repo, { method: 'GET', cf: cfOptions }, env, ctx);
   }
 
-  async fileExists(path: string, repo: ResolvedRepo): Promise<boolean> {
+  async fileExists(path: string, repo: ResolvedRepo, env?: any, ctx?: any): Promise<boolean> {
     const url = `https://api.github.com/repos/${repo.meta.owner}/${repo.meta.name}/contents/${path}?ref=${repo.meta.branch}`;
-    const res = await this.request(url, repo, { method: 'HEAD' });
+    const res = await this.request(url, repo, { method: 'HEAD' }, env, ctx);
     return res.status === 200;
   }
 
-  async getFile(path: string, repo: ResolvedRepo): Promise<GitHubItem | null> {
+  async getFile(path: string, repo: ResolvedRepo, env?: any, ctx?: any): Promise<GitHubItem | null> {
     const url = `https://api.github.com/repos/${repo.meta.owner}/${repo.meta.name}/contents/${path}?ref=${repo.meta.branch}`;
-    const res = await this.request(url, repo);
+    const res = await this.request(url, repo, {}, env, ctx);
     if (!res.ok) return null;
     return res.json();
   }
 
-  async putFile(path: string, repo: ResolvedRepo, contentBase64: string, message: string): Promise<Response> {
+  async putFile(path: string, repo: ResolvedRepo, contentBase64: string, message: string, env?: any, ctx?: any): Promise<Response> {
     const url = `https://api.github.com/repos/${repo.meta.owner}/${repo.meta.name}/contents/${path}`;
     return this.request(url, repo, {
       method: 'PUT',
@@ -59,10 +65,10 @@ export class GitHubService {
         content: contentBase64,
         branch: repo.meta.branch
       })
-    });
+    }, env, ctx);
   }
 
-  async deleteFile(path: string, repo: ResolvedRepo, sha: string, message: string): Promise<Response> {
+  async deleteFile(path: string, repo: ResolvedRepo, sha: string, message: string, env?: any, ctx?: any): Promise<Response> {
     const url = `https://api.github.com/repos/${repo.meta.owner}/${repo.meta.name}/contents/${path}`;
     return this.request(url, repo, {
       method: 'DELETE',
@@ -72,12 +78,12 @@ export class GitHubService {
         sha,
         branch: repo.meta.branch
       })
-    });
+    }, env, ctx);
   }
 
-  async getTree(repo: ResolvedRepo, recursive: boolean = false): Promise<any> {
+  async getTree(repo: ResolvedRepo, recursive: boolean = false, env?: any, ctx?: any): Promise<any> {
     const url = `https://api.github.com/repos/${repo.meta.owner}/${repo.meta.name}/git/trees/${repo.meta.branch}${recursive ? '?recursive=1' : ''}`;
-    const res = await this.request(url, repo);
+    const res = await this.request(url, repo, {}, env, ctx);
     if (!res.ok) return null;
     return res.json();
   }
@@ -107,6 +113,6 @@ export class GitHubService {
 export const githubService = new GitHubService();
 
 // Keep backward compatibility for image routing
-export const fetchFromGitHub = async (path: string, repo: ResolvedRepo, cfOptions?: RequestInitCfProperties) => {
-  return githubService.fetchRaw(path, repo, cfOptions);
+export const fetchFromGitHub = async (path: string, repo: ResolvedRepo, cfOptions?: RequestInitCfProperties, env?: any, ctx?: any) => {
+  return githubService.fetchRaw(path, repo, cfOptions, env, ctx);
 };

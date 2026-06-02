@@ -1,3 +1,5 @@
+import { alertThrottled } from './notifications';
+
 export const logger = {
   info: (event: string, data: Record<string, any>) => {
     console.log(JSON.stringify({ ts: new Date().toISOString(), level: 'info', event, ...data }));
@@ -31,6 +33,40 @@ export const logger = {
         ],
         indexes: [data.repoId || 'unknown']
       });
+    }
+
+    // Real-time Anomaly Detection (4xx Ratio)
+    if (c.env.REPO_REGISTRY) {
+      const minute = Math.floor(Date.now() / 60000);
+      const totalKey = `stats::total::\${minute}`;
+      const err4xxKey = `stats::4xx::\${minute}`;
+      
+      c.executionCtx.waitUntil((async () => {
+        try {
+          // Increment counters (Best effort, non-atomic KV is fine for trend detection)
+          const [tStr, eStr] = await Promise.all([
+            c.env.REPO_REGISTRY.get(totalKey),
+            c.env.REPO_REGISTRY.get(err4xxKey)
+          ]);
+          
+          const total = (parseInt(tStr || '0', 10)) + 1;
+          let err4xx = parseInt(eStr || '0', 10);
+          if (data.statusCode >= 400 && data.statusCode < 500) err4xx++;
+          
+          await Promise.all([
+            c.env.REPO_REGISTRY.put(totalKey, total.toString(), { expirationTtl: 300 }),
+            c.env.REPO_REGISTRY.put(err4xxKey, err4xx.toString(), { expirationTtl: 300 })
+          ]);
+
+          // Alert if ratio > 30% and volume is significant (> 10 reqs)
+          if (total > 10 && (err4xx / total) > 0.3) {
+            await alertThrottled('anomaly_4xx', 
+              `🕵️ <b>Traffic Anomaly Detected</b>\nHigh 4xx error rate: <b>\${Math.round((err4xx/total)*100)}%</b>\nMinute: \${minute}\nTotal: \${total} | 4xx: \${err4xx}\nPossible scraping or broken links.`,
+              c.env, 1, c.executionCtx
+            );
+          }
+        } catch {}
+      })());
     }
   },
   captureError: (c: any, err: any, context: Record<string, any> = {}) => {
