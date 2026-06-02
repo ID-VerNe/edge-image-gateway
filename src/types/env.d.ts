@@ -24,6 +24,7 @@ export interface Bindings {
   ADMIN_TOTP_SECRET?: string;
   CF_ZONE_ID?: string;
   CF_API_TOKEN?: string;
+  SENTRY_DSN?: string;
 }
 
 export type AppEnvironment = {

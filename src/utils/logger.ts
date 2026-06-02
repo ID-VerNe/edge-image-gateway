@@ -32,5 +32,34 @@ export const logger = {
         indexes: [data.repoId || 'unknown']
       });
     }
+  },
+  captureError: (c: any, err: any, context: Record<string, any> = {}) => {
+    const dsn = c.env.SENTRY_DSN;
+    if (!dsn) return;
+    try {
+      const url = new URL(dsn);
+      const projectId = url.pathname.slice(1);
+      const apiUrl = `https://\${url.host}/api/\${projectId}/store/`;
+      const auth = `Sentry sentry_version=7, sentry_key=\${url.username}, sentry_client=cf-worker-img-proxy/1.0`;
+      
+      const event = {
+        event_id: crypto.randomUUID().replace(/-/g, ''),
+        timestamp: Date.now() / 1000,
+        platform: 'javascript',
+        level: 'error',
+        message: err.message || String(err),
+        exception: { values: [{ type: err.name || 'Error', value: err.message || String(err), stacktrace: err.stack ? { frames: [] } : undefined }] },
+        extra: context,
+        tags: { repo_id: context.repoId, path: context.path, event_type: context.event }
+      };
+
+      c.executionCtx.waitUntil(fetch(apiUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Sentry-Auth': auth },
+        body: JSON.stringify(event)
+      }));
+    } catch (e) {
+      console.error('Sentry reporting failed:', e);
+    }
   }
 };

@@ -5,6 +5,7 @@ import { resolveForWrite, resolveForRead } from '../../../services/repoRouter';
 import { sha256 } from '../../../utils/hash';
 import { stripMetadata } from '../../../utils/imageProcessor';
 import { githubService } from '../../../services/github';
+import { logger } from '../../../utils/logger';
 
 const uploadApi = new Hono<AppEnvironment>();
 
@@ -108,19 +109,14 @@ uploadApi.post('/', async (c) => {
     const origin = new URL(c.req.url).origin;
     const fullUrl = `${origin}${result.url}`;
 
-    // If request has Authorization header, it's likely an API tool like PicGo
-    // In this case, we return the fullUrl in the 'url' field as expected by PicGo
     const isApiRequest = !!c.req.header('Authorization');
-    return c.json({ 
-      ...result, 
-      fullUrl, 
-      url: isApiRequest ? fullUrl : result.url,
-      deduplicated: false 
-    });
+    return c.json({ ...result, fullUrl, url: isApiRequest ? fullUrl : result.url, deduplicated: false });
 
   } catch (err: any) {
+    logger.captureError(c, err, { event: 'upload_failed' });
     return c.json({ error: 'Internal upload error', message: err.message }, 500);
   }
 });
+
 
 export default uploadApi;

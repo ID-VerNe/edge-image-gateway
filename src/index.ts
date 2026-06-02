@@ -32,6 +32,7 @@ app.use('/*', signatureGuard);
 // Global Error Handler
 app.onError((err, c) => {
   console.error('Global error:', err);
+  logger.captureError(c, err, { path: c.req.path, method: c.req.method });
   return c.json({
     error: 'Unhandled Exception',
     message: err.message,

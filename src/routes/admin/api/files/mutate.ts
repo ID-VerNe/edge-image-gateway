@@ -4,6 +4,7 @@ import { AppEnvironment } from '../../../../types/env';
 import { resolveForRead, resolveForWrite, RepoMeta } from '../../../../services/repoRouter';
 import { githubService } from '../../../../services/github';
 import { purgeFileCache } from '../../../../utils/cache';
+import { logger } from '../../../../utils/logger';
 
 const mutateApi = new Hono<AppEnvironment>();
 
@@ -34,6 +35,7 @@ mutateApi.post('/mkdir', async (c) => {
 
     return c.json({ success: true, path });
   } catch (err: any) {
+    logger.captureError(c, err, { event: 'mkdir_failed' });
     return c.json({ error: 'Internal mkdir error', message: err.message }, 500);
   }
 });
@@ -126,6 +128,7 @@ mutateApi.delete('/*', async (c) => {
 
     return c.json({ success: true, path });
   } catch (err: any) {
+    logger.captureError(c, err, { event: 'delete_failed' });
     return c.json({ error: 'Internal delete error', message: err.message }, 500);
   }
 });
@@ -294,6 +297,7 @@ mutateApi.post('/*/move', async (c) => {
 
     return c.json({ success: true, taskId, status: 'pending' });
   } catch (err: any) {
+    logger.captureError(c, err, { event: 'move_failed' });
     return c.json({ error: 'Internal move error', message: err.message }, 500);
   }
 });
