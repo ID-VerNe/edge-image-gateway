@@ -20,10 +20,13 @@ export const NAVIGATION = `
     } catch(e) {}
   }
 
-  async function loadRepos() {
+  async function loadRepos(data = null) {
     try {
-      const r = await fetch('/admin/api/repos');
-      const data = await r.json();
+      if (!data) {
+        const r = await fetch('/admin/api/repos');
+        data = await r.json();
+      }
+      
       repos = data.repos;
       const currentWriteId = data.currentWriteId;
       
@@ -42,6 +45,7 @@ export const NAVIGATION = `
                   <button class="btn" style="font-size:0.75rem; padding:2px 8px;" onclick='showEditRepoModal(\${JSON.stringify(repo)})'>Edit</button>
                   <button class="btn btn-danger" style="font-size:0.75rem; padding:2px 8px;" onclick="deleteRepo('\${repo.id}')">Delete</button>
                 \` : ''}
+                <button class="btn" style="font-size:0.75rem; padding:2px 8px;" onclick="syncRepo('\${repo.id}')">Sync</button>
                 <div class="tree-item" style="padding:0; cursor:default;"><i style="color:\${repo.status === 'active' ? '#2da44e' : '#cf222e'}">●</i> \${repo.status}</div>
               </div>
             </div>

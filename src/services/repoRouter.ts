@@ -105,6 +105,13 @@ const getRepoIdFromRecord = (record: string | null): string | null => {
   return record;
 };
 
+export const invalidateRepoCache = () => {
+  lastCacheTime = 0;
+  cachedRepos.clear();
+  cachedReadRules = null;
+  cachedCurrentWrite = null;
+};
+
 export const resolveForRead = async (path: string, env: Bindings): Promise<ResolvedRepo> => {
   await ensureCache(env);
 
@@ -223,6 +230,20 @@ export const listAllRepos = async (env: Bindings, force: boolean = false): Promi
     return [getFallbackRepo(env).meta];
   }
   return Array.from(cachedRepos.values());
+};
+
+export const getRepoById = async (id: string, env: Bindings): Promise<ResolvedRepo | null> => {
+  await ensureCache(env);
+  if (id === 'fallback') {
+    return getFallbackRepo(env);
+  }
+  
+  if (cachedRepos.has(id)) {
+    const repo = cachedRepos.get(id)!;
+    return { meta: repo, token: getTokenFromEnv(env, repo.tokenSecretName) };
+  }
+  
+  return null;
 };
 
 export const getCurrentWriteId = async (env: Bindings, force: boolean = false): Promise<string> => {

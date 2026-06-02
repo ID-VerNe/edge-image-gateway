@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import { AppEnvironment } from '../../../types/env';
-import { listAllRepos, RepoMeta, getCurrentWriteId, getTokenFromEnv } from '../../../services/repoRouter';
+import { listAllRepos, RepoMeta, getCurrentWriteId, getTokenFromEnv, getRepoById, invalidateRepoCache } from '../../../services/repoRouter';
 import { Buffer } from 'node:buffer';
 import { githubService } from '../../../services/github';
 
@@ -27,7 +27,9 @@ repoApi.post('/route/write', async (c) => {
     await c.env.REPO_REGISTRY.put('route::current_write', repo);
   }
 
-  return c.json({ success: true, currentWriteId: repo });
+  invalidateRepoCache();
+  const repos = await listAllRepos(c.env, true);
+  return c.json({ success: true, currentWriteId: repo, repos });
 });
 
 repoApi.post('/', async (c) => {
@@ -98,7 +100,10 @@ repoApi.post('/', async (c) => {
   };
 
   await c.env.REPO_REGISTRY.put(`repo::${id}`, JSON.stringify(newRepo));
-  return c.json({ success: true, repo: newRepo });
+  
+  invalidateRepoCache();
+  const repos = await listAllRepos(c.env, true);
+  return c.json({ success: true, repo: newRepo, repos });
 });
 
 repoApi.put('/:id', async (c) => {
@@ -151,41 +156,80 @@ repoApi.put('/:id', async (c) => {
   }
   
   await c.env.REPO_REGISTRY.put(`repo::${updatedRepo.id}`, JSON.stringify(updatedRepo));
-  return c.json({ success: true, repo: updatedRepo });
+  
+  invalidateRepoCache();
+  const repos = await listAllRepos(c.env, true);
+  return c.json({ success: true, repo: updatedRepo, repos });
+});
+
+repoApi.post('/:id/sync', async (c) => {
+  if (!c.env.REPO_REGISTRY) return c.json({ error: 'KV not configured' }, 400);
+  const id = c.req.param('id');
+  console.log(`Syncing repo: ${id}`);
+  
+  const repo = await getRepoById(id, c.env);
+  if (!repo) {
+    console.error(`Repo not found: ${id}`);
+    return c.json({ error: 'Repository not found in registry' }, 404);
+  }
+
+  try {
+    console.log(`Fetching tree from GitHub for: ${repo.meta.owner}/${repo.meta.name}`);
+    const treeData = await githubService.getTree(repo, true);
+    
+    if (!treeData) {
+       console.error('GitHub API returned no data');
+       return c.json({ error: 'GitHub API returned no data' }, 500);
+    }
+    
+    if (!treeData.tree) {
+      console.error('GitHub API response missing .tree property', treeData);
+      return c.json({ error: 'GitHub API response invalid', details: treeData }, 500);
+    }
+
+    const blobs = treeData.tree.filter((item: any) => item.type === 'blob');
+    let totalSize = 0;
+    
+    for (const item of blobs) {
+      totalSize += item.size || 0;
+    }
+
+    console.log(`Sync complete: ${blobs.length} files, ${totalSize} bytes`);
+
+    repo.meta.fileCount = blobs.length;
+    repo.meta.sizeBytes = totalSize;
+    repo.meta.status = 'active'; 
+
+    await c.env.REPO_REGISTRY.put(`repo::${repo.meta.id}`, JSON.stringify(repo.meta));
+
+    invalidateRepoCache();
+    const repos = await listAllRepos(c.env, true);
+    return c.json({ success: true, fileCount: blobs.length, sizeBytes: totalSize, repos });
+  } catch (err: any) {
+    console.error('Sync error catch block:', err);
+    return c.json({ error: 'Sync failed exception', message: err.message, stack: err.stack }, 500);
+  }
 });
 
 repoApi.delete('/:id', async (c) => {
   if (!c.env.REPO_REGISTRY) return c.json({ error: 'KV not configured' }, 400);
   const id = c.req.param('id');
-  const deleteAllLinked = c.req.query('all') === 'true';
 
-  const existingStr = await c.env.REPO_REGISTRY.get(`repo::${id}`);
-  if (!existingStr) return c.json({ error: 'Repo not found' }, 404);
-  const targetRepo = JSON.parse(existingStr) as RepoMeta;
+  const exists = await c.env.REPO_REGISTRY.get(`repo::${id}`);
+  if (!exists) return c.json({ error: 'Repo not found' }, 404);
 
-  if (deleteAllLinked) {
-    const allRepos = await listAllRepos(c.env, true);
-    for (const r of allRepos) {
-      if (r.owner.toLowerCase() === targetRepo.owner.toLowerCase() && 
-          r.name.toLowerCase() === targetRepo.name.toLowerCase()) {
-        await c.env.REPO_REGISTRY.delete(`repo::${r.id}`);
-      }
-    }
-  } else {
-    await c.env.REPO_REGISTRY.delete(`repo::${id}`);
-  }
+  // Simply delete the specific mapping
+  await c.env.REPO_REGISTRY.delete(`repo::${id}`);
 
-  // Clean up write target if deleted
+  // Clean up write target if it was the one deleted
   const currentWrite = await c.env.REPO_REGISTRY.get('route::current_write');
-  if (currentWrite === id || (deleteAllLinked && currentWrite)) {
-     // Verify if currentWrite still exists
-     const stillExists = await c.env.REPO_REGISTRY.get(`repo::${currentWrite}`);
-     if (!stillExists) {
-       await c.env.REPO_REGISTRY.delete('route::current_write');
-     }
+  if (currentWrite === id) {
+     await c.env.REPO_REGISTRY.delete('route::current_write');
   }
 
-  return c.json({ success: true });
+  invalidateRepoCache();
+  const repos = await listAllRepos(c.env, true);
+  return c.json({ success: true, repos });
 });
 
 export default repoApi;

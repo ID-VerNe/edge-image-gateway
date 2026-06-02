@@ -32,7 +32,7 @@ export const REPO_ACTIONS = `
       const data = await res.json();
       if(!res.ok) throw new Error(data.error || 'Failed to register repo');
       
-      await loadRepos();
+      await loadRepos(data);
       await loadStats();
       hideAddRepoModal();
     } catch(e) { alert(e.message); }
@@ -42,12 +42,13 @@ export const REPO_ACTIONS = `
   async function setWriteRepo(repoId) {
     showLoader('Switching write target...');
     try {
-      await fetch('/admin/api/repos/route/write', {
+      const res = await fetch('/admin/api/repos/route/write', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ repo: repoId })
       });
-      await loadRepos();
+      const data = await res.json();
+      await loadRepos(data);
       await loadFiles(''); 
       showToast('Write target switched to ' + repoId);
     } catch(e) { alert('Failed to switch write target'); }
@@ -91,7 +92,7 @@ export const REPO_ACTIONS = `
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Update failed');
       
-      await loadRepos();
+      await loadRepos(data);
       hideEditRepoModal();
       showToast('Repository updated');
     } catch(e) { alert(e.message); }
@@ -99,22 +100,21 @@ export const REPO_ACTIONS = `
   }
 
   async function deleteRepo(id) {
-    const deleteAll = confirm('Delete all aliases linked to this physical repository? \\n(Cancel to delete ONLY this ID)');
-    const confirmText = prompt('This is a destructive action. Type the repository ID "' + id + '" to confirm deletion:');
+    const confirmText = prompt('This will only delete the mapping in KV. The GitHub repository will NOT be touched. \\nType the repository ID "' + id + '" to confirm deletion:');
     if (confirmText !== id) {
       if (confirmText !== null) alert('Confirmation failed. ID mismatch.');
       return;
     }
 
-    showLoader('Deleting repo...');
+    showLoader('Deleting mapping...');
     try {
-      const res = await fetch(\`/admin/api/repos/\${id}?all=\${deleteAll}\`, { method: 'DELETE' });
+      const res = await fetch(\`/admin/api/repos/\${id}\`, { method: 'DELETE' });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Delete failed');
 
-      await loadRepos();
+      await loadRepos(data);
       await loadStats();
-      showToast('Repository deleted');
+      showToast('Repository mapping deleted');
     } catch(e) { alert(e.message); }
     hideLoader();
   }
@@ -125,5 +125,19 @@ export const REPO_ACTIONS = `
     await fetch('/admin/api/cache/purge', { method: 'POST' });
     hideLoader();
     showToast('Cache purge requested');
+  }
+
+  async function syncRepo(id) {
+    showLoader('Syncing with GitHub...');
+    try {
+      const res = await fetch(\`/admin/api/repos/\${id}/sync\`, { method: 'POST' });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Sync failed');
+      
+      await loadRepos(data);
+      await loadStats();
+      showToast(\`Synced: \${data.fileCount} files, \${(data.sizeBytes / (1024*1024)).toFixed(2)} MB\`);
+    } catch(e) { alert(e.message); }
+    hideLoader();
   }
 `;

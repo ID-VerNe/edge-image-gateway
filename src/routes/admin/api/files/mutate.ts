@@ -56,6 +56,7 @@ mutateApi.delete('/*', async (c) => {
       );
 
       let deletedCount = 0;
+      let deletedBytes = 0;
       for (const item of itemsToDelete) {
         const delRes = await githubService.deleteFile(
           item.path, 
@@ -65,6 +66,7 @@ mutateApi.delete('/*', async (c) => {
         );
         if (delRes.ok) {
           deletedCount++;
+          deletedBytes += item.size || 0;
           if (c.env.REPO_REGISTRY) {
             const recordStr = await c.env.REPO_REGISTRY.get(`path::${item.path}`);
             if (recordStr && recordStr.startsWith('{')) {
@@ -80,6 +82,7 @@ mutateApi.delete('/*', async (c) => {
 
       if (deletedCount > 0 && c.env.REPO_REGISTRY) {
         repo.meta.fileCount = Math.max(0, repo.meta.fileCount - deletedCount);
+        repo.meta.sizeBytes = Math.max(0, repo.meta.sizeBytes - deletedBytes);
         await c.env.REPO_REGISTRY.put(`repo::${repo.meta.id}`, JSON.stringify(repo.meta));
       }
       return c.json({ success: true, deletedCount });

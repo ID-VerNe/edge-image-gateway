@@ -18,6 +18,14 @@ const adminApp = new Hono<AppEnvironment>();
 // Apply auth middleware to all admin routes
 adminApp.use('/*', adminAuthGuard);
 
+// Force no-cache for all API routes
+adminApp.use('/api/*', async (c, next) => {
+  await next();
+  c.header('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+  c.header('Pragma', 'no-cache');
+  c.header('Expires', '0');
+});
+
 // Mount API Sub-Routers
 adminApp.route('/api/repos', repoApi);
 adminApp.route('/api/files', fileApi);

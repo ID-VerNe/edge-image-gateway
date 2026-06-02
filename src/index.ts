@@ -28,6 +28,16 @@ app.get('/healthz', (c) => {
 app.use('/*', rateLimitGuard);
 app.use('/*', signatureGuard);
 
+// Global Error Handler
+app.onError((err, c) => {
+  console.error('Global error:', err);
+  return c.json({
+    error: 'Unhandled Exception',
+    message: err.message,
+    stack: err.stack, // Helpful for debugging
+  }, 500);
+});
+
 // Mount Admin UI and APIs
 app.route('/admin', adminApp);
 
