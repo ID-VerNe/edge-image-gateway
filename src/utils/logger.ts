@@ -97,5 +97,28 @@ export const logger = {
     } catch (e) {
       console.error('Sentry reporting failed:', e);
     }
+  },
+  recordAudit: async (c: any, action: string, data: Record<string, any>) => {
+    if (!c.env.REPO_REGISTRY) return;
+    try {
+      const user = c.get('user') || { email: 'system' };
+      const ip = c.req.header('CF-Connecting-IP') || 'unknown';
+      const timestamp = Date.now();
+      const auditKey = `audit::\${timestamp}::\${action}`;
+      
+      const payload = {
+        ts: new Date(timestamp).toISOString(),
+        action,
+        user: user.email,
+        ip,
+        ...data
+      };
+
+      await c.env.REPO_REGISTRY.put(auditKey, JSON.stringify(payload), { 
+        expirationTtl: 90 * 24 * 60 * 60 // 90 days 
+      });
+    } catch (e) {
+      console.error('Failed to record audit log:', e);
+    }
   }
 };

@@ -14,6 +14,7 @@ export const PARTIALS = {
         </div>
       </div>
       <div class="sidebar-footer">
+        <div class="tree-item" id="nav-audit" onclick="switchView('audit')">📜 Audit Logs</div>
         <div class="tree-item" id="nav-tokens" onclick="switchView('tokens')">🔑 API Tokens</div>
         <div class="tree-item" id="nav-settings" onclick="switchView('repos')">⚙️ Settings</div>
       </div>
@@ -83,6 +84,35 @@ export const PARTIALS = {
       <div class="content-area">
          <p style="font-size:0.875rem; color:#57606a; margin-bottom:2rem;">Use these tokens to authenticate external tools like PicGo. <br>Endpoint: <code>/admin/api/upload</code> | Header: <code>Authorization: Bearer &lt;token&gt;</code></p>
          <div id="token-list" class="file-list-card"></div>
+      </div>
+    </main>
+  `,
+  mainAudit: `
+    <main id="main-audit" style="display: none;">
+      <div class="toolbar">
+        <div class="breadcrumbs"><span class="breadcrumb-item current">Operational Audit Logs</span></div>
+        <div class="actions">
+          <button class="btn btn-primary" onclick="loadAuditLogs()">Refresh</button>
+        </div>
+      </div>
+      <div class="content-area">
+         <p style="font-size:0.875rem; color:#57606a; margin-bottom:1rem;">Retaining activity logs for 90 days. Showing last 50 events.</p>
+         <div class="file-list-card" style="padding:0; overflow:hidden;">
+            <table style="width:100%; border-collapse:collapse; font-size:0.875rem;">
+              <thead style="background:var(--github-gray); border-bottom:1px solid var(--kami-border);">
+                <tr>
+                  <th style="padding:0.75rem; text-align:left;">Time</th>
+                  <th style="padding:0.75rem; text-align:left;">User</th>
+                  <th style="padding:0.75rem; text-align:left;">Action</th>
+                  <th style="padding:0.75rem; text-align:left;">IP</th>
+                  <th style="padding:0.75rem; text-align:left;">Details</th>
+                </tr>
+              </thead>
+              <tbody id="audit-log-list">
+                <tr><td colspan="5" style="padding:2rem; text-align:center; color:#57606a;">Loading logs...</td></tr>
+              </tbody>
+            </table>
+         </div>
       </div>
     </main>
   `,

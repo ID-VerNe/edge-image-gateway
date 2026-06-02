@@ -129,9 +129,48 @@ export const NAVIGATION = `
       const tokensNav = document.getElementById('nav-tokens');
       if(tokensNav) tokensNav.classList.add('active');
       if(typeof loadTokens === 'function') loadTokens();
+    } else if(v === 'audit') {
+      const auditNav = document.getElementById('nav-audit');
+      if(auditNav) auditNav.classList.add('active');
+      loadAuditLogs();
     } else if(v === 'files' && !currentPath) {
        const rootNav = document.querySelector('.tree-item.root');
        if(rootNav) rootNav.classList.add('active');
+    }
+  }
+
+  async function loadAuditLogs() {
+    const list = document.getElementById('audit-log-list');
+    if(!list) return;
+    try {
+      const r = await fetch('/admin/api/audit');
+      const data = await r.json();
+      const logs = data.logs || [];
+      
+      if (logs.length === 0) {
+        list.innerHTML = '<tr><td colspan="5" style="padding:2rem; text-align:center; color:#57606a;">No audit logs found.</td></tr>';
+        return;
+      }
+
+      list.innerHTML = logs.map(log => {
+        let details = '';
+        for (const k in log) {
+          if (!['ts', 'user', 'action', 'ip'].includes(k)) {
+            details += k + ': <b>' + log[k] + '</b> | ';
+          }
+        }
+        return \`
+          <tr style="border-bottom:1px solid var(--kami-border);">
+            <td style="padding:0.75rem; white-space:nowrap;">\${new Date(log.ts).toLocaleString()}</td>
+            <td style="padding:0.75rem; color:var(--kami-blue); font-weight:500;">\${log.user}</td>
+            <td style="padding:0.75rem;"><span class="badge" style="background:#eef; color:#0550ae; font-size:0.7rem; padding:2px 6px; border-radius:4px; font-weight:600;">\${log.action}</span></td>
+            <td style="padding:0.75rem; font-family:monospace; font-size:0.75rem; color:#57606a;">\${log.ip}</td>
+            <td style="padding:0.75rem; font-size:0.75rem; color:#57606a;">\${details}</td>
+          </tr>
+        \`;
+      }).join('');
+    } catch (e) {
+      list.innerHTML = '<tr><td colspan="5" style="padding:2rem; text-align:center; color:#cf222e;">Failed to load logs.</td></tr>';
     }
   }
 `;

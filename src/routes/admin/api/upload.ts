@@ -110,7 +110,17 @@ uploadApi.post('/', async (c) => {
     const fullUrl = `${origin}${result.url}`;
 
     const isApiRequest = !!c.req.header('Authorization');
-    return c.json({ ...result, fullUrl, url: isApiRequest ? fullUrl : result.url, deduplicated: false });
+    const responseData = { ...result, fullUrl, url: isApiRequest ? fullUrl : result.url, deduplicated: false };
+
+    // Record Audit Log
+    c.executionCtx.waitUntil(logger.recordAudit(c, 'UPLOAD_FILE', { 
+      path: result.path, 
+      size: result.size, 
+      repoId: result.repo,
+      isApi: isApiRequest
+    }));
+
+    return c.json(responseData);
 
   } catch (err: any) {
     logger.captureError(c, err, { event: 'upload_failed' });

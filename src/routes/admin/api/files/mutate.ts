@@ -33,6 +33,8 @@ mutateApi.post('/mkdir', async (c) => {
       await c.env.REPO_REGISTRY.put(`path::${fullPath}`, repo.meta.id);
     }
 
+    c.executionCtx.waitUntil(logger.recordAudit(c, 'MKDIR', { path }));
+
     return c.json({ success: true, path });
   } catch (err: any) {
     logger.captureError(c, err, { event: 'mkdir_failed' });
@@ -87,6 +89,7 @@ mutateApi.delete('/*', async (c) => {
         repo.meta.fileCount = Math.max(0, repo.meta.fileCount - deletedCount);
         repo.meta.sizeBytes = Math.max(0, repo.meta.sizeBytes - deletedBytes);
         await c.env.REPO_REGISTRY.put(`repo::${repo.meta.id}`, JSON.stringify(repo.meta));
+        c.executionCtx.waitUntil(logger.recordAudit(c, 'DELETE_DIR', { path, deletedCount }));
       }
       return c.json({ success: true, deletedCount });
     }
@@ -124,6 +127,7 @@ mutateApi.delete('/*', async (c) => {
 
       // Granular Cache Purge
       c.executionCtx.waitUntil(purgeFileCache(path, c.env, new URL(c.req.url).origin));
+      c.executionCtx.waitUntil(logger.recordAudit(c, 'DELETE_FILE', { path }));
     }
 
     return c.json({ success: true, path });
@@ -253,6 +257,10 @@ const runMigration = async (taskId: string, c: any) => {
       c.executionCtx.waitUntil(purgeFileCache(task.sourcePath, c.env, new URL(c.req.url).origin));
       
       await updateStatus('done');
+      c.executionCtx.waitUntil(logger.recordAudit(c, 'MOVE_FILE', { 
+        source: task.sourcePath, 
+        target: task.targetPath 
+      }));
     }
 
   } catch (err: any) {

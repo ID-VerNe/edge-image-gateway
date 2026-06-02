@@ -3,6 +3,7 @@ import { AppEnvironment } from '../../../types/env';
 import { listAllRepos, RepoMeta, getCurrentWriteId, getTokenFromEnv, getRepoById, invalidateRepoCache } from '../../../services/repoRouter';
 import { Buffer } from 'node:buffer';
 import { githubService } from '../../../services/github';
+import { logger } from '../../../utils/logger';
 
 const repoApi = new Hono<AppEnvironment>();
 
@@ -28,6 +29,7 @@ repoApi.post('/route/write', async (c) => {
   }
 
   invalidateRepoCache();
+  c.executionCtx.waitUntil(logger.recordAudit(c, 'SWITCH_WRITE_REPO', { target: repo }));
   const repos = await listAllRepos(c.env, true);
   return c.json({ success: true, currentWriteId: repo, repos });
 });
@@ -100,6 +102,7 @@ repoApi.post('/', async (c) => {
   };
 
   await c.env.REPO_REGISTRY.put(`repo::${id}`, JSON.stringify(newRepo));
+  c.executionCtx.waitUntil(logger.recordAudit(c, 'CREATE_REPO', { id, owner, name }));
   
   invalidateRepoCache();
   const repos = await listAllRepos(c.env, true);
@@ -156,6 +159,7 @@ repoApi.put('/:id', async (c) => {
   }
   
   await c.env.REPO_REGISTRY.put(`repo::${updatedRepo.id}`, JSON.stringify(updatedRepo));
+  c.executionCtx.waitUntil(logger.recordAudit(c, 'UPDATE_REPO', { id: oldId, ...body }));
   
   invalidateRepoCache();
   const repos = await listAllRepos(c.env, true);
@@ -201,6 +205,7 @@ repoApi.post('/:id/sync', async (c) => {
     repo.meta.status = 'active'; 
 
     await c.env.REPO_REGISTRY.put(`repo::${repo.meta.id}`, JSON.stringify(repo.meta));
+    c.executionCtx.waitUntil(logger.recordAudit(c, 'SYNC_REPO', { id, fileCount: blobs.length, sizeBytes: totalSize }));
 
     invalidateRepoCache();
     const repos = await listAllRepos(c.env, true);
@@ -220,6 +225,7 @@ repoApi.delete('/:id', async (c) => {
 
   // Simply delete the specific mapping
   await c.env.REPO_REGISTRY.delete(`repo::${id}`);
+  c.executionCtx.waitUntil(logger.recordAudit(c, 'DELETE_REPO', { id }));
 
   // Clean up write target if it was the one deleted
   const currentWrite = await c.env.REPO_REGISTRY.get('route::current_write');

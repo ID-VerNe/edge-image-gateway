@@ -12,6 +12,7 @@ import repoApi from './admin/api/repos';
 import fileApi from './admin/api/files';
 import uploadApi from './admin/api/upload';
 import statsApi from './admin/api/stats';
+import auditApi from './admin/api/audit';
 
 const adminApp = new Hono<AppEnvironment>();
 
@@ -31,6 +32,7 @@ adminApp.route('/api/repos', repoApi);
 adminApp.route('/api/files', fileApi);
 adminApp.route('/api/upload', uploadApi);
 adminApp.route('/api/stats', statsApi);
+adminApp.route('/api/audit', auditApi);
 
 // Cache Purge
 adminApp.post('/api/cache/purge', async (c) => {
@@ -90,6 +92,7 @@ adminApp.get('/', (c) => {
         ${PARTIALS.mainFiles}
         ${PARTIALS.mainRepos}
         ${PARTIALS.mainTokens}
+        ${PARTIALS.mainAudit}
       </div>
 
       ${PARTIALS.modals}
