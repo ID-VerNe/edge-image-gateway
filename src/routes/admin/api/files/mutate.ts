@@ -269,6 +269,39 @@ const runMigration = async (taskId: string, c: any) => {
   }
 };
 
+mutateApi.post('/mutate', async (c) => {
+  try {
+    const body = await c.req.json() as any;
+    const { action, path, newPath } = body;
+    
+    if (action === 'rename') {
+      if (!path || !newPath) return c.json({ error: 'Source and target paths are required' }, 400);
+      if (path === newPath) return c.json({ success: true, taskId: 'noop' });
+
+      const taskId = `ren_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+      const task: MigrationTask = {
+        id: taskId,
+        sourcePath: path,
+        targetPath: newPath,
+        status: 'pending',
+        startTime: Date.now(),
+        lastUpdate: Date.now()
+      };
+
+      if (c.env.REPO_REGISTRY) {
+        await c.env.REPO_REGISTRY.put(`migration::${taskId}`, JSON.stringify(task), { expirationTtl: 86400 });
+        c.executionCtx.waitUntil(runMigration(taskId, c));
+      }
+      return c.json({ success: true, taskId, status: 'pending' });
+    }
+    
+    return c.json({ error: 'Unsupported action' }, 400);
+  } catch (err: any) {
+    logger.captureError(c, err, { event: 'mutate_general_failed' });
+    return c.json({ error: 'Mutation failed', message: err.message }, 500);
+  }
+});
+
 mutateApi.get('/migrations/:id', async (c) => {
   const kv = c.env.REPO_REGISTRY;
   if (!kv) return c.json({ error: 'KV not configured' }, 400);

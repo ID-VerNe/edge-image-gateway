@@ -25,6 +25,8 @@ export interface Bindings {
   CF_ZONE_ID?: string;
   CF_API_TOKEN?: string;
   SENTRY_DSN?: string;
+  TELEGRAM_BOT_TOKEN?: string;
+  TELEGRAM_CHAT_ID?: string;
 }
 
 export type AppEnvironment = {

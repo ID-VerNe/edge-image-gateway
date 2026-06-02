@@ -1,15 +1,16 @@
-# API 参考文档
+# API 参考
 
-## 基础信息
+## 概览
 
-- **Base URL**：`https://{your-domain}`
-- **健康检查**：`GET /healthz`（无需认证）
-- **管理后台**：`/admin/*`（需管理员认证）
-- **图片请求**：`GET /*`（受安全中间件保护）
+所有 API 端点托管在 Cloudflare Workers 上。基础 URL 示例：
+
+```
+https://edge-image-gateway.your-account.workers.dev
+```
 
 ---
 
-## 图片请求
+## 图片访问
 
 ### 获取图片
 
@@ -17,408 +18,361 @@
 GET /{path}
 ```
 
-获取存储在 GitHub 仓库中的图片文件。
+获取图片或其它文件的原始内容。
 
-**路径参数**：
-| 参数 | 类型 | 必填 | 说明 |
-|------|------|------|------|
-| `path` | string | 是 | 图片在仓库中的路径，如 `2026/06/photo.png` |
+**路径参数**
 
-**查询参数**（可选，用于动态缩放）：
+| 参数 | 说明 |
+|------|------|
+| `path` | 文件在 GitHub 仓库中的路径，支持多级目录 |
+
+**查询参数（图片处理）**
 
 | 参数 | 类型 | 默认值 | 说明 |
 |------|------|--------|------|
-| `w` | number | - | 目标宽度（像素） |
-| `h` | number | - | 目标高度（像素） |
-| `q` | number | `75` | 图片质量（1-100） |
-| `fit` | string | `scale-down` | 缩放模式：`cover`、`contain`、`scale-down` |
-| `sig` | string | - | HMAC 签名（需要签名时必填） |
-| `exp` | number | - | 签名过期时间戳（unix 秒级） |
+| `w` | number | 原图宽度 | 缩放宽度（像素） |
+| `h` | number | 原图高度 | 缩放高度（像素） |
+| `q` | number | `85` | 图片质量（1-100） |
+| `fit` | string | `scale-down` | 缩放模式：`scale-down` / `contain` / `cover` / `crop` / `pad` |
+| `format` | string | 原格式 | 输出格式：`auto` / `avif` / `webp` / `json` |
 
-**示例**：
+> 图片处理依赖 Cloudflare Image Resizing，需要相应订阅。
 
-```http
-GET /2026/06/hero.jpg?w=1200&q=80&fit=cover
+**响应**
+
+- `200 OK` — 图片内容，包含适当的 `Content-Type` 和缓存头
+- `304 Not Modified` — 客户端缓存有效（支持 `If-None-Match` / `If-Modified-Since`）
+- `403 Forbidden` — 防盗链拦截或签名无效
+- `404 Not Found` — 文件不存在
+- `429 Too Many Requests` — 速率超限
+
+**示例**
+
+```bash
+# 获取原图
+curl https://image.example.com/images/photo.jpg
+
+# 获取 200x200 缩略图
+curl https://image.example.com/images/photo.jpg?w=200&h=200
+
+# 获取 WebP 格式
+curl https://image.example.com/images/photo.jpg?format=webp
+
+# 裁剪 + 高质量
+curl "https://image.example.com/images/photo.jpg?w=400&h=400&fit=crop&q=90"
 ```
-
-**响应**：
-- `200 OK`：图片内容（Content-Type 自动匹配）
-- `304 Not Modified`：ETag 匹配时返回
-- `403 Forbidden`：防盗链、限流或签名验证失败
-- `404 Not Found`：文件不存在
-- `429 Too Many Requests`：请求频率超限
-
-**响应头**：
-
-| 响应头 | 说明 |
-|--------|------|
-| `Cache-Control` | `public, max-age={CACHE_TTL_SECONDS}` |
-| `CF-Cache-Status` | 缓存状态（HIT/MISS） |
-| `X-Repo-Route` | 路由到的仓库 ID |
 
 ---
 
-## 健康检查
+## 上传图片
 
-### 服务状态
-
-```
-GET /healthz
-```
-
-检查服务运行状态和环境配置。
-
-**响应示例**（200）：
-
-```json
-{
-  "status": "ok",
-  "timestamp": "2024-01-01T00:00:00.000Z",
-  "config": {
-    "githubUser": "***",
-    "githubRepo": "***",
-    "githubBranch": "main",
-    "allowedReferers": [],
-    "cacheTtlSeconds": 604800,
-    "enableSignature": false,
-    "emergencyLockdown": false,
-    "rateLimitPerMin": 120
-  }
-}
-```
-
-**响应头**：无安全中间件干预。
-
----
-
-## 管理后台 API
-
-所有管理后台 API 都需要通过 Cloudflare Access 认证。
-
-### 文件管理
-
-#### 列出文件
+### 上传文件
 
 ```
-GET /admin/api/files?repo={repoId}&path={path}
+POST /upload
 ```
 
-获取指定目录下的文件列表。
+上传图片文件到默认写仓库。
 
-| 参数 | 类型 | 必填 | 默认值 | 说明 |
-|------|------|------|--------|------|
-| `repo` | string | 否 | 当前写仓库 | 仓库 ID |
-| `path` | string | 否 | `/` | 目录路径 |
+**请求头**
 
-**响应**：
+| 头 | 值 | 必填 | 说明 |
+|----|----|------|------|
+| `Content-Type` | `multipart/form-data` | 是 | 仅支持 multipart 上传 |
+| `X-Signature` | HMAC-SHA256 | 当 `ENABLE_SIGNATURE=true` 时 | 请求签名 |
+| `X-Timestamp` | Unix 时间戳 | 当需签名时 | 请求时间戳 |
 
-```json
-{
-  "success": true,
-  "data": {
-    "files": [
-      {
-        "name": "photo.jpg",
-        "path": "2026/photo.jpg",
-        "sha": "abc123",
-        "size": 123456,
-        "type": "file",
-        "download_url": "https://raw.githubusercontent.com/..."
-      }
-    ],
-    "directories": ["2026"],
-    "repo": "default-repo"
-  }
-}
-```
-
-#### 上传文件
-
-```
-POST /admin/api/upload
-Content-Type: multipart/form-data
-```
+**请求体（multipart/form-data）**
 
 | 字段 | 类型 | 必填 | 说明 |
 |------|------|------|------|
-| `file` | file | 是 | 要上传的文件 |
-| `path` | string | 是 | 存储路径（含文件名） |
-| `repo` | string | 否 | 目标仓库 ID（默认当前写仓库） |
+| `file` | File | 是 | 要上传的文件 |
+| `path` | string | 否 | 自定义存储路径（含文件名） |
+| `prefix` | string | 否 | 路径前缀，自动与文件名拼接 |
 
-**响应**：
-
-```json
-{
-  "success": true,
-  "data": {
-    "url": "/2026/photo.jpg",
-    "sha": "def456"
-  }
-}
-```
-
-#### 删除文件
-
-```
-DELETE /admin/api/files
-Content-Type: application/json
-```
-
-```json
-{
-  "path": "2026/old-photo.jpg",
-  "repo": "default-repo"
-}
-```
-
-**响应**：
+**响应**
 
 ```json
 {
   "success": true,
-  "data": {
-    "sha": "ghi789"
-  }
+  "url": "/images/2025/photo.jpg",
+  "sha": "abc123def456",
+  "size": 102400,
+  "repo": "my-image-repo"
 }
 ```
 
-**批量删除**：
-
-```http
-POST /admin/api/files/batch-delete
-Content-Type: application/json
-```
+**错误响应**
 
 ```json
 {
-  "paths": [
-    { "path": "2026/photo1.jpg" },
-    { "path": "2026/photo2.jpg" }
+  "success": false,
+  "error": "File size exceeds limit",
+  "code": "FILE_TOO_LARGE"
+}
+```
+
+**错误码**
+
+| 错误码 | HTTP 状态码 | 说明 |
+|--------|-------------|------|
+| `FILE_TOO_LARGE` | 413 | 文件超出大小限制 |
+| `INVALID_TYPE` | 415 | 不允许的文件类型 |
+| `SIGNATURE_REQUIRED` | 401 | 需要签名认证 |
+| `INVALID_SIGNATURE` | 403 | 签名验证失败 |
+| `UPLOAD_FAILED` | 500 | 上传到 GitHub 失败 |
+| `EMERGENCY_LOCKDOWN` | 503 | 系统已熔断，拒绝写入 |
+
+**示例**
+
+```bash
+# 简单上传
+curl -X POST \
+  -F "file=@photo.jpg" \
+  https://image.example.com/upload
+
+# 带自定义路径
+curl -X POST \
+  -F "file=@photo.jpg" \
+  -F "path=blog/2025/photo.jpg" \
+  https://image.example.com/upload
+
+# 带签名认证
+curl -X POST \
+  -F "file=@photo.jpg" \
+  -H "X-Signature: <hmac-hex>" \
+  -H "X-Timestamp: 1717200000" \
+  https://image.example.com/upload
+```
+
+### 批量上传
+
+```
+POST /upload/batch
+```
+
+一次性上传多个文件。
+
+**请求体（multipart/form-data）**
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `files` | File[] | 多个文件（使用相同的字段名 `files`） |
+
+**响应**
+
+```json
+{
+  "success": true,
+  "results": [
+    { "url": "/photo1.jpg", "sha": "abc...", "size": 102400, "repo": "repo1" },
+    { "url": "/photo2.jpg", "sha": "def...", "size": 204800, "repo": "repo1" }
   ],
-  "repo": "default-repo"
-}
-```
-
-#### 移动文件
-
-```
-POST /admin/api/files/move
-Content-Type: application/json
-```
-
-```json
-{
-  "from": "2026/temp.jpg",
-  "to": "archive/temp.jpg",
-  "repo": "default-repo"
-}
-```
-
-**响应**：
-
-```json
-{
-  "success": true,
-  "data": {
-    "sha": "jkl012"
-  }
-}
-```
-
-#### 创建目录
-
-```
-POST /admin/api/files/mkdir
-Content-Type: application/json
-```
-
-```json
-{
-  "path": "new-folder",
-  "repo": "default-repo"
+  "errors": []
 }
 ```
 
 ---
+
+## 图片删除
+
+### 删除文件
+
+```
+DELETE /{path}
+```
+
+从存储仓库中删除指定文件（需要签名认证）。
+
+**请求头**
+
+| 头 | 值 | 说明 |
+|----|----|------|
+| `X-Signature` | HMAC-SHA256 | 管理签名 |
+| `X-Timestamp` | Unix 时间戳 | 签名时间戳 |
+
+**响应**
+
+```json
+{
+  "success": true,
+  "sha": "abc123def456",
+  "repo": "my-image-repo"
+}
+```
+
+---
+
+## 分享链接
+
+### 生成分享链接
+
+```
+GET /share/{path}
+```
+
+生成一个带 HMAC 签名和过期时间的临时分享链接。
+
+**查询参数**
+
+| 参数 | 类型 | 默认值 | 说明 |
+|------|------|--------|------|
+| `expires` | number | 当前时间 + 7 天 | 过期 Unix 时间戳（秒） |
+| `filename` | string | 原始文件名 | 下载时的文件名（触发下载） |
+
+**响应**
+
+```
+HTTP/1.1 302 Found
+Location: /images/photo.jpg?__share_sig=abc...&__share_exp=1717200000
+```
+
+**示例**
+
+```bash
+# 生成 24 小时后过期的分享链接
+curl -v "https://image.example.com/share/images/photo.jpg?expires=$(( $(date +%s) + 86400 ))"
+```
+
+**验证方式**
+
+分享链接生成后，访问 `/share/{path}` 会返回 302 重定向，指向带签名的文件路径。
+
+文件访问时，中间件检测到 `__share_sig` 参数后，会验证签名和过期时间，跳过防盗链（Referer）检查。
+
+---
+
+## 目录列表
+
+### 获取目录树
+
+```
+GET /{path}?list
+```
+
+列出指定路径下的文件和子目录。
+
+**查询参数**
+
+| 参数 | 类型 | 说明 |
+|------|------|------|
+| `list` | boolean | 启用目录列表模式 |
+| `depth` | number | 递归深度（默认 `1`，最大 `3`） |
+
+**响应**
+
+```json
+{
+  "path": "/images",
+  "type": "tree",
+  "entries": [
+    { "name": "2025", "path": "/images/2025", "type": "tree" },
+    { "name": "photo.jpg", "path": "/images/photo.jpg", "type": "blob", "size": 102400 }
+  ]
+}
+```
+
+---
+
+## 管理 API
+
+管理 API 端点需要管理员认证，所有端点以 `/admin` 为前缀。
+
+### 认证
+
+管理面板支持两种认证方式：
+
+1. **Cloudflare Access (Zero Trust)** — 自动识别 `Cf-Access-Authenticated-User-Email` 请求头
+2. **TOTP** — 通过 `Authorization: Bearer <totp-code>` 请求头认证
 
 ### 仓库管理
 
-#### 列出所有仓库
+```
+GET  /admin/api/repos              # 列出所有仓库
+POST /admin/api/repos              # 创建新仓库
+GET  /admin/api/repos/:id          # 获取仓库详情
+PUT  /admin/api/repos/:id          # 更新仓库配置
+DELETE /admin/api/repos/:id        # 删除仓库
+POST /admin/api/repos/:id/sync     # 同步仓库元数据
+```
+
+### 文件管理
 
 ```
-GET /admin/api/repos
+GET  /admin/api/files              # 列出文件（分页）
+GET  /admin/api/files?path=xxx     # 列出目录内容
+DELETE /admin/api/files            # 删除文件
+POST /admin/api/files/move         # 移动/重命名文件
 ```
 
-**响应**：
+### 统计
+
+```
+GET /admin/api/stats               # 获取系统概览统计
+GET /admin/api/stats/repos         # 各仓库统计
+GET /admin/api/stats/requests      # 请求统计
+```
+
+### 审计日志
+
+```
+GET /admin/api/audit               # 查询审计日志
+```
+
+**查询参数**
+
+| 参数 | 类型 | 说明 |
+|------|------|------|
+| `limit` | number | 返回条数（默认 `50`，最大 `200`） |
+| `cursor` | string | 分页游标 |
+| `action` | string | 按操作类型筛选：`delete` / `upload` / `repo_create` / `repo_delete` |
+| `repoId` | string | 按仓库筛选 |
+
+### 分享管理
+
+```
+GET  /admin/api/shares             # 列出分享令牌
+POST /admin/api/shares             # 创建分享令牌
+DELETE /admin/api/shares/:id       # 撤销分享令牌
+```
+
+### 缓存管理
+
+```
+POST /admin/api/cache/purge        # 清除缓存
+```
+
+**请求体**
 
 ```json
 {
-  "success": true,
-  "data": {
-    "repos": [
-      {
-        "id": "default-repo",
-        "owner": "github-user",
-        "name": "storage-repo",
-        "branch": "main",
-        "status": "active",
-        "sizeBytes": 1048576,
-        "fileCount": 42,
-        "capacityLimitBytes": 5368709120,
-        "readRule": { "prefix": "/" }
-      }
-    ],
-    "currentWriteRepo": "default-repo"
-  }
-```
-
-#### 注册仓库
-
-```
-POST /admin/api/repos
-Content-Type: application/json
-```
-
-```json
-{
-  "id": "new-repo",
-  "owner": "github-user",
-  "name": "another-repo",
-  "branch": "main",
-  "readRule": { "prefix": "/photos" },
-  "status": "active",
-  "capacityLimitBytes": 10737418240
+  "paths": ["/images/photo.jpg"],
+  "purgeAll": false
 }
 ```
 
-#### 更新仓库
+### 配置
 
 ```
-PATCH /admin/api/repos/{repoId}
-Content-Type: application/json
-```
-
-```json
-{
-  "status": "readonly",
-  "capacityLimitBytes": 21474836480
-}
-```
-
-#### 删除仓库
-
-```
-DELETE /admin/api/repos/{repoId}
-```
-
-#### 切换写仓库
-
-```
-POST /admin/api/repos/route/write
-Content-Type: application/json
-```
-
-```json
-{
-  "repo": "target-repo-id"
-}
-```
-
----
-
-### 统计与缓存
-
-#### 获取统计信息
-
-```
-GET /admin/api/stats
-```
-
-**响应**：
-
-```json
-{
-  "success": true,
-  "data": {
-    "totalRepos": 2,
-    "totalFiles": 142,
-    "totalSizeBytes": 52428800,
-    "repos": [
-      {
-        "id": "default-repo",
-        "name": "storage-repo",
-        "fileCount": 100,
-        "sizeBytes": 41943040,
-        "capacityLimitBytes": 5368709120
-      },
-      {
-        "id": "blog-repo",
-        "name": "blog-images",
-        "fileCount": 42,
-        "sizeBytes": 10485760,
-        "capacityLimitBytes": 10737418240
-      }
-    ]
-  }
-}
-```
-
-#### 刷新缓存
-
-```
-POST /admin/api/stats/cache/purge
-```
-
-**响应**：
-
-```json
-{
-  "success": true,
-  "message": "Cache purged"
-}
-```
-
----
-
-## 签名生成脚本
-
-使用内置脚本生成带签名的 URL：
-
-```bash
-npx tsx scripts/sign.ts <path> <expires_in_seconds> <secret>
-```
-
-**示例**：
-
-```bash
-npx tsx scripts/sign.ts /private/documents/report.pdf 3600 your-sign-secret
-```
-
-**输出**：
-
-```
-http://localhost:8787/private/documents/report.pdf?sig=abc123def456&exp=1704067200
+GET  /admin/api/config             # 获取运行时配置
+PUT  /admin/api/config             # 更新运行时配置
 ```
 
 ---
 
 ## 状态码汇总
 
-| 状态码 | 说明 | 触发条件 |
-|--------|------|----------|
-| `200` | 成功 | 请求正常处理 |
+| HTTP 状态码 | 含义 | 常见原因 |
+|-------------|------|----------|
+| `200` | 成功 | 正常响应 |
+| `302` | 重定向 | 分享链接生成 |
 | `304` | 未修改 | 客户端缓存有效 |
-| `400` | 请求错误 | 参数无效或路径非法 |
-| `403` | 禁止访问 | 防盗链/签名验证失败、IP 封禁 |
-| `404` | 未找到 | 文件或仓库不存在 |
-| `429` | 请求过多 | 超出速率限制 |
-| `500` | 服务器错误 | 内部处理异常 |
-
----
-
-## 相关文档
-
-- [安全指南](./security.md) — 签名验证和防盗链的工作原理
-- [多仓库路由](./multi-repo.md) — 多仓库 API 的管理和使用
-- [管理后台指南](./admin-panel.md) — 管理后台前端操作说明
-- [架构详解](./architecture.md) — 完整的请求处理流程
+| `400` | 请求错误 | 参数缺失或格式错误 |
+| `401` | 未授权 | 缺少签名或认证 |
+| `403` | 禁止访问 | 签名无效、防盗链拦截 |
+| `404` | 不存在 | 文件或路径不存在 |
+| `413` | 请求体过大 | 文件超出大小限制 |
+| `415` | 不支持的类型 | 不允许的文件 MIME 类型 |
+| `429` | 请求过多 | 速率超限 |
+| `500` | 服务器错误 | 内部异常 |
+| `503` | 服务不可用 | 紧急熔断已激活 |

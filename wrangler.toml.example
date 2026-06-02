@@ -22,6 +22,24 @@ CACHE_TTL_SECONDS = "604800"
 ENABLE_SIGNATURE = "false"
 RATE_LIMIT_PER_MIN = "120"
 
+# 管理认证
+ADMIN_EMAILS = "admin@example.com"
+# ADMIN_TOTP_SECRET (通过 wrangler secret put 设置)
+
+# 可选：Cloudflare 集成
+# CF_ZONE_ID = "your-zone-id"
+# CF_API_TOKEN (通过 wrangler secret put 设置)
+
+# 可选：监控告警
+# SENTRY_DSN (通过 wrangler secret put 设置)
+# TELEGRAM_BOT_TOKEN (通过 wrangler secret put 设置)
+# TELEGRAM_CHAT_ID (通过 wrangler secret put 设置)
+
+# 可选：Analytics Engine
+# [[analytics_engine_datasets]]
+# binding = "ANALYTICS_ENGINE"
+# dataset = "edge_image_gateway"
+
 [env.preview]
 name = "img-proxy-preview"
 vars = { ALLOWED_REFERERS = "preview.yourdomain.com" }

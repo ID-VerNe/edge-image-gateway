@@ -1,290 +1,246 @@
 # 部署指南
 
-## 手动部署
+## 前置准备
 
-### 前置条件
+### 1. 创建 Cloudflare 账号
 
-1. 确保已完成所有配置（详见 [配置参考](./configuration.md)）
-2. 确保已设置所有必需的 Secrets
-3. 拥有 Cloudflare 账户并配置了 Workers 域名
+访问 [dash.cloudflare.com](https://dash.cloudflare.com/) 注册账号。
 
-### 部署步骤
-
-#### 1. 配置 wrangler.toml
+### 2. 安装工具
 
 ```bash
-cp wrangler.toml.example wrangler.toml
+# 安装 Node.js (>= 18)
+# 下载: https://nodejs.org/
+
+# 安装 pnpm
+npm install -g pnpm
+
+# 安装 wrangler CLI 并登录
+pnpm add -g wrangler
+wrangler login
 ```
 
-编辑文件，填入以下信息：
+### 3. 创建 GitHub 仓库
 
-```toml
-name = "edge-image-gateway"
-main = "src/index.ts"
-compatibility_date = "2024-05-31"
+创建用于存储图片的 GitHub 仓库：
 
-[vars]
-GITHUB_USER = "your-github-username"
-GITHUB_REPO = "your-storage-repo"
-GITHUB_BRANCH = "main"
-ALLOWED_REFERERS = "yourdomain.com"
-CACHE_TTL_SECONDS = "604800"
-ENABLE_SIGNATURE = "false"
-RATE_LIMIT_PER_MIN = "120"
+1. 在 GitHub 上创建新仓库（建议为 Private）
+2. 生成 Personal Access Token：
+   - 访问 GitHub Settings → Developer settings → Personal access tokens → Fine-grained tokens
+   - 权限：`Contents` (Read & Write)
+   - 仓库：选择刚创建的仓库
 
-[[kv_namespaces]]
-binding = "REPO_REGISTRY"
-id = "your-kv-namespace-id"
-```
-
-#### 2. 创建 KV 命名空间（如未创建）
+### 4. 创建 Cloudflare KV Namespace
 
 ```bash
-npx wrangler kv namespace create REPO_REGISTRY
+# 创建 KV Namespace
+npx wrangler kv:namespace create "REPO_REGISTRY"
+
+# 输出示例:
+# 🌀  Creating namespace with title "edge-image-gateway-REPO_REGISTRY"
+# ✨  Success!
+# Bindings:
+#   [[kv_namespaces]]
+#   binding = "REPO_REGISTRY"
+#   id = "abc123..."
 ```
 
 将输出的 `id` 填入 `wrangler.toml`。
 
-#### 3. 设置 Secrets
+---
+
+## 部署步骤
+
+### 1. 克隆项目并安装依赖
 
 ```bash
+git clone https://github.com/your-username/edge-image-gateway.git
+cd edge-image-gateway
+pnpm install
+```
+
+### 2. 配置 wrangler.toml
+
+```bash
+copy wrangler.toml.example wrangler.toml
+```
+
+编辑 `wrangler.toml`，填入 KV Namespace ID 和环境变量。
+
+### 3. 设置 Secrets
+
+```bash
+# GitHub Token (+ repo 读写权限)
 npx wrangler secret put GITHUB_TOKEN
-# 输入你的 GitHub Personal Access Token
 
+# 签名密钥（用于分享链接和内部通信）
 npx wrangler secret put SIGN_SECRET
-# 输入签名密钥（可选，启用签名时需要）
+# 以上命令会提示输入值
+
+# 可选: TOTP 管理员密钥
+npx wrangler secret put ADMIN_TOTP_SECRET
+
+# 可选: Cloudflare API Token (用于管理面板缓存清除)
+npx wrangler secret put CF_API_TOKEN
+
+# 可选: 告警配置
+npx wrangler secret put TELEGRAM_BOT_TOKEN
+npx wrangler secret put TELEGRAM_CHAT_ID
 ```
 
-#### 4. 部署
+### 4. 初始化 KV 配置
+
+部署后首次访问管理面板，系统会自动初始化默认配置。
+
+如需手动初始化：
 
 ```bash
+# 设置默认仓库
+npx wrangler kv:key put \
+  --binding=REPO_REGISTRY \
+  "repo::default" \
+  '{"id":"default","owner":"YOUR_USER","name":"YOUR_REPO","branch":"main","status":"active","createdAt":"2025-01-01T00:00:00.000Z","sizeBytes":0,"fileCount":0,"capacityLimitBytes":5368709120,"tokenSecretName":"GITHUB_TOKEN"}'
+
+# 设置当前写仓库
+npx wrangler kv:key put \
+  --binding=REPO_REGISTRY \
+  "route::current_write" "default"
+```
+
+### 5. 部署
+
+```bash
+# 部署到 Cloudflare Workers
 pnpm deploy
+
+# 输出示例:
+# Total Upload: xx KB
+# ...
+# Published: https://edge-image-gateway.your-account.workers.dev
 ```
 
-该命令会构建并部署 Worker 到 Cloudflare 边缘网络。
-
-#### 5. 验证部署
+### 6. 验证部署
 
 ```bash
-curl https://your-worker-domain/healthz
-```
+# 测试首页
+curl https://edge-image-gateway.your-account.workers.dev/
 
-预期返回：
+# 测试上传 (需配置签名)
+curl -X POST \
+  -F "file=@test.jpg" \
+  -H "X-Signature: <generated-signature>" \
+  https://edge-image-gateway.your-account.workers.dev/upload
 
-```json
-{
-  "status": "ok",
-  "timestamp": "2024-01-01T00:00:00.000Z",
-  ...
-}
+# 测试图片访问
+curl https://edge-image-gateway.your-account.workers.dev/test.jpg
+
+# 测试管理面板
+# 浏览器打开 https://edge-image-gateway.your-account.workers.dev/admin
 ```
 
 ---
 
-## CI/CD 自动部署
+## 配置 Cloudflare Image Resizing
 
-项目已配置 GitHub Actions 自动部署工作流。
+图片实时处理功能需要启用 Cloudflare Image Resizing：
 
-### 工作流文件
+1. 在 Cloudflare Dashboard 中进入你的域名的 **Speed → Optimization**
+2. 找到 **Image Resizing** 并启用
+3. 如果使用 Images 订阅计划，可以直接使用
+4. Image Resizing 仅在代理模式（Proxied）下生效，需要你的域名通过 Cloudflare 代理
 
-`.github/workflows/deploy.yml` 包含完整的 CI/CD 管道：
-
-```yaml
-name: Deploy
-on:
-  push:
-    branches: [main]    # 推送 main 分支时触发生产部署
-  pull_request:         # PR 时触发预览部署
-
-jobs:
-  deploy:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v4
-      - run: pnpm install
-      - run: pnpm typecheck
-      - run: pnpm test
-      - name: Deploy
-        run: pnpm deploy
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-```
-
-### GitHub Secrets 配置
-
-在 GitHub 仓库的 Settings → Secrets and variables → Actions 中设置：
-
-| Secret 名称 | 说明 | 获取方式 |
-|------------|------|----------|
-| `CLOUDFLARE_API_TOKEN` | Cloudflare API Token | Cloudflare Dashboard → My Profile → API Tokens（权限：Workers 编辑） |
-| `GITHUB_TOKEN` | GitHub PAT | GitHub Settings → Developer settings → Personal access tokens |
-| `SIGN_SECRET` | 签名密钥（可选） | 随机生成 |
-
-### CI/CD 流程说明
-
-#### 生产部署（推送到 main）
-
-1. 检出代码
-2. 安装依赖（pnpm）
-3. 运行类型检查（`pnpm typecheck`）
-4. 运行测试（`pnpm test`）
-5. 通过 Wrangler 部署到生产环境
-
-#### 预览部署（PR）
-
-1. 检出 PR 分支代码
-2. 安装依赖
-3. 运行类型检查和测试
-4. 通过 Wrangler 部署到预览环境
-5. 在 PR 评论中生成预览 URL
+> 注意：Image Resizing 需要 Cloudflare Pro/Business/Enterprise 订阅，或单独的 Images 订阅。
 
 ---
 
-## 环境管理
+## 配置 Cloudflare Access（管理认证）
 
-### 多环境配置
+推荐使用 Cloudflare Access (Zero Trust) 保护管理面板：
 
-`wrangler.toml` 支持多环境配置：
+1. 进入 Cloudflare Dashboard → Zero Trust → Access → Applications
+2. 添加自托管应用
+3. 设置应用域名为你的 Worker 域名
+4. 添加策略：允许指定邮箱或邮箱后缀访问 `/admin` 路径
+5. 在 `wrangler.toml` 中设置 `ADMIN_EMAILS`
+
+如果不想使用 Cloudflare Access，可使用内置 TOTP 认证：
+
+```bash
+# 生成 TOTP 密钥并设置
+npx wrangler secret put ADMIN_TOTP_SECRET
+```
+
+使用 TOTP 时，访问管理面板会提示输入 6 位验证码（可用 Google Authenticator / Authy 等 App 扫码）。
+
+---
+
+## 配置 Sentry（错误监控）
+
+```bash
+npx wrangler secret put SENTRY_DSN
+```
+
+Sentry 会自动捕获 Workers 运行时的未捕获异常并上报。
+
+---
+
+## 配置 Telegram 告警
+
+```bash
+npx wrangler secret put TELEGRAM_BOT_TOKEN
+npx wrangler secret put TELEGRAM_CHAT_ID
+```
+
+当触发热阈值（如 GitHub API 速率剩余不足 1000）时，系统会通过 Telegram Bot 发送告警。
+
+---
+
+## 配置 Analytics Engine
+
+在 `wrangler.toml` 中添加：
 
 ```toml
-[env.preview]
-name = "edge-image-gateway-preview"
-vars = { ALLOWED_REFERERS = "preview.yourdomain.com" }
-
-[env.production]
-name = "edge-image-gateway"
+[[analytics_engine_datasets]]
+binding = "ANALYTICS_ENGINE"
+dataset = "edge_image_gateway"
 ```
 
-### 部署到指定环境
+在 Cloudflare Dashboard 中创建同名数据集即可开始收集请求指标。
+
+---
+
+## 生产环境部署清单
+
+- [ ] GitHub Token 已生成且有 `repo` 权限
+- [ ] KV Namespace 已创建并配置
+- [ ] 所有 Secrets 已通过 `wrangler secret put` 设置
+- [ ] Cloudflare Image Resizing 已启用
+- [ ] 域名已通过 Cloudflare 代理（DNS 设置为 Proxied）
+- [ ] Cloudflare Access 或 TOTP 已配置
+- [ ] 首次部署后已经初始化 KV 仓库注册表
+- [ ] Analytics Engine 数据集已创建（如使用）
+- [ ] Worker 路由已绑定到自定义域名（可选）
+
+---
+
+## 更新部署
 
 ```bash
-# 生产环境
+# 更新 Worker
 pnpm deploy
 
-# 预览环境
-npx wrangler deploy --env preview
+# 更新 Secrets
+npx wrangler secret put GITHUB_TOKEN
 ```
-
----
-
-## 配置 Cloudflare Access（管理后台认证）
-
-### 步骤
-
-1. 登录 [Cloudflare Dashboard](https://dash.cloudflare.com/)
-2. 进入 Zero Trust → Access → Applications
-3. 点击 "Add an application"，选择 "Self-hosted"
-4. 配置应用信息：
-   - **Application name**: `Edge Image Gateway`
-
-   - **Session Duration**: `24h`
-   - **Application domain**: 选择你的 Worker 域名
-   - **Path**: `/admin`
-5. 配置访问策略（Policy）：
-   - **Policy name**: `Allow my domain`
-   - **Action**: `Allow`
-   - **Rules**: 例如 `Emails ending in: @yourdomain.com`
-6. 保存配置
-
-### 验证
-
-访问 `https://your-worker-domain/admin`，应自动跳转到 Cloudflare Access 登录页面。
-
----
-
-## 配置自定义域名
-
-### 步骤
-
-1. 在 Cloudflare Dashboard 中，进入你的域名 DNS 设置
-2. 添加一条 CNAME 记录：
-   - **Type**: CNAME
-   - **Name**: 子域名（如 `img`）
-   - **Target**: 你的 Worker 域名（如 `edge-image-gateway.your-account.workers.dev`）
-   - **Proxy**: 开启（橙色云朵）
-3. 在 Worker 的 Triggers 选项卡中，添加自定义域名路由
-4. 更新 `wrangler.toml` 中的 `ALLOWED_REFERERS` 为新的自定义域名
-
----
-
-## 部署后验证清单
-
-- [ ] 健康检查端点返回 200
-- [ ] 图片 URL 可正常访问
-- [ ] 图片缩放参数生效（`?w=200`）
-- [ ] 管理后台可正常登录
-- [ ] 文件上传功能正常
-- [ ] 防盗链正常工作（非白名单域名返回 403）
-- [ ] 限流正常工作（高频请求返回 429）
-- [ ] 缓存生效（响应头包含 `CF-Cache-Status: HIT`）
 
 ---
 
 ## 回滚
 
-如果需要回滚到之前的版本：
-
-### 通过 Wrangler 回滚
-
 ```bash
-# 查看部署版本
-npx wrangler deployments list
+# 查看历史版本
+npx wrangler versions list
 
 # 回滚到指定版本
-npx wrangler rollback --version <version-id>
+npx wrangler rollback --version-id <version-id>
 ```
-
-### 通过 Git + CI/CD 回滚
-
-```bash
-git revert HEAD
-git push origin main
-```
-
-CI/CD 会自动部署回滚后的版本。
-
----
-
-## 监控与日志
-
-### Cloudflare Dashboard
-
-在 Cloudflare Dashboard 中可以查看：
-- **Worker 调用次数**：请求量统计
-- **CPU 时间**：计算资源消耗
-- **带宽**：数据传输量
-- **错误率**：5xx 错误统计
-
-### Workers 日志
-
-在 Worker 的 Logs 选项卡中可以查看实时日志。日志采用 JSON 格式输出，包含以下字段：
-
-```json
-{
-  "level": "info",
-  "message": "Image served",
-  "requestId": "abc123",
-  "path": "/2026/photo.jpg",
-  "status": 200,
-  "duration": 45,
-  "repo": "default-repo"
-}
-```
-
-### 告警设置
-
-在 Cloudflare Dashboard 中可设置告警规则：
-- 错误率超过阈值
-- 调用次数异常增长
-- 响应时间过长
-
----
-
-## 相关文档
-
-- [配置参考](./configuration.md) — 环境变量和 Secrets 配置
-- [安全指南](./security.md) — Cloudflare Access 和签名密钥安全
-- [多仓库路由](./multi-repo.md) — KV 命名空间与多仓库部署
-- [开发与测试](./development.md) — 本地开发环境搭建

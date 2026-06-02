@@ -3,5 +3,6 @@ export const STATE = `
   let viewMode = localStorage.getItem('gateway_view_mode') || 'list';
   let repos = [];
   let selectedFiles = new Set();
+  let currentLightboxPath = '';
   const fi = document.getElementById('fileInput');
 `;

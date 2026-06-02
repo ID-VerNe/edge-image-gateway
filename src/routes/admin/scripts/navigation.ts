@@ -59,6 +59,8 @@ export const NAVIGATION = `
     } catch(e) {}
   }
 
+  let allFiles = [];
+
   async function loadFiles(path = '') {
     currentPath = path.replace(/^\\/+|\\/+$/g, '');
     window.location.hash = currentPath;
@@ -72,10 +74,49 @@ export const NAVIGATION = `
     try {
       const r = await fetch('/admin/api/files?prefix=' + encodeURIComponent(currentPath));
       const data = await r.json();
-      const files = data.files || [];
-      renderFileList(files);
-      renderSidebarTree(files);
+      allFiles = data.files || [];
+      renderFileList(allFiles);
+      renderSidebarTree(allFiles);
     } catch (e) { if(container) container.innerHTML = '<div style="padding:2rem;">Error loading files</div>'; }
+  }
+
+  function filterFiles(query) {
+    if (!query) {
+      renderFileList(allFiles);
+      return;
+    }
+    const q = query.toLowerCase();
+    const filtered = allFiles.filter(f => f.name.toLowerCase().includes(q));
+    renderFileList(filtered);
+  }
+
+  async function loadTrash() {
+    switchView('trash');
+    const container = document.getElementById('trash-container');
+    if(container) container.innerHTML = '<div style="padding:2rem; text-align:center;">Loading...</div>';
+    try {
+      const r = await fetch('/admin/api/files?prefix=.trash/');
+      const data = await r.json();
+      const files = data.files || [];
+      
+      if (files.length === 0) {
+        container.innerHTML = '<div style="padding:2rem; text-align:center; color:#57606a;">Recycle Bin is empty.</div>';
+        return;
+      }
+
+      container.innerHTML = files.map(f => \`
+        <div class="file-row">
+          <div class="file-icon">🗑️</div>
+          <div class="file-name">\${f.path}</div>
+          <div class="file-meta">\${(f.size / 1024).toFixed(1)} KB</div>
+          <div class="file-meta">\${f.updated_at || ''}</div>
+          <div class="file-actions">
+            <button class="btn btn-mini" onclick="restoreFile('\${f.path}')">Restore</button>
+            <button class="btn btn-mini btn-danger" onclick="deleteFilePermanently('\${f.path}')">Delete</button>
+          </div>
+        </div>
+      \`).join('');
+    } catch (e) { container.innerHTML = '<div style="padding:2rem; text-align:center; color:#cf222e;">Failed to load trash.</div>'; }
   }
 
   function renderSidebarTree(currentFiles) {
@@ -133,6 +174,10 @@ export const NAVIGATION = `
       const auditNav = document.getElementById('nav-audit');
       if(auditNav) auditNav.classList.add('active');
       loadAuditLogs();
+    } else if(v === 'trash') {
+      const trashNav = document.getElementById('nav-trash');
+      if(trashNav) trashNav.classList.add('active');
+      loadTrash();
     } else if(v === 'files' && !currentPath) {
        const rootNav = document.querySelector('.tree-item.root');
        if(rootNav) rootNav.classList.add('active');

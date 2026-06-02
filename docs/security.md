@@ -1,226 +1,272 @@
-# 安全配置指南
+# 安全指南
 
-## 概述
+## 安全架构
 
-本项目采用七层纵深防御体系来保护图片资源的安全。所有安全模块均可独立启用/关闭，按需组合。
+Edge Image Gateway 采用多层安全防护体系，覆盖访问控制、传输安全、运行时安全等多个维度。
+
+```
+                       请求入口
+                           │
+              ┌────────────▼────────────┐
+              │  L1: 速率限制 (IP级)     │
+              │  - 令牌桶算法            │
+              │  - 可配置阈值            │
+              └────────────┬────────────┘
+                           │
+              ┌────────────▼────────────┐
+              │  L2: 防盗链 (Referer)    │
+              │  - 白名单模式            │
+              │  - 可配置允许列表         │
+              │  - 分享链接自动跳过       │
+              └────────────┬────────────┘
+                           │
+              ┌────────────▼────────────────┐
+              │  L3: 签名认证 + 紧急熔断检查  │
+              │  - HMAC-SHA256 签名         │
+              │  - 时间戳防重放（5 分钟窗口） │
+              │  - 熔断开关 → 拒绝写操作     │
+              └────────────┬────────────────┘
+                           │
+              ┌────────────▼────────────┐
+              │  L4: 管理员认证           │
+              │  - Cloudflare Access    │
+              │  - 或 TOTP 双因素        │
+              └────────────┬────────────┘
+                           │
+              ┌────────────▼────────────┐
+              │  L5: 响应安全头          │
+              │  - 防嗅探头 (nosniff)   │
+              └─────────────────────────┘
+```
 
 ---
 
-## 1. 防盗链（Referer Guard）
+## 1. 速率限制
 
-### 工作原理
+系统对每个 IP 地址实施独立的速率限制，防止滥用。
 
-检查请求头中的 `Referer` 或 `Origin` 字段，验证是否在域名白名单中。同时配合 `Sec-Fetch-Dest` 请求头校验，进一步过滤非浏览器请求。
+**实现方式**：令牌桶算法，在 Workers 内存中维护每个 IP 的令牌计数。
 
-### 配置方式
+**配置**：
 
-在 `wrangler.toml` 中设置：
+```toml
+# wrangler.toml
+[vars]
+RATE_LIMIT_PER_MIN = "100"   # 每分钟每 IP 最大请求数
+```
+
+**行为**：
+- 超限后返回 `HTTP 429 Too Many Requests`
+- 响应包含 `Retry-After` 头，指示客户端何时可重试
+- 限制按 IP 独立计数，不受共享 IP（如 NAT）影响
+
+---
+
+## 2. 紧急熔断
+
+紧急熔断机制提供了一键关闭所有写操作的能力，用于应对安全事件或异常流量。
+
+**触发方式**：
+
+- **管理面板** — 在系统设置中一键开关
+- **KV 直接操作** — `kv_config::emergency_lockdown = "true"`
+- **环境变量** — `EMERGENCY_LOCKDOWN = "true"`（部署后立即生效）
+
+**效果**：
+- 所有 `POST`、`PUT`、`DELETE`、`PATCH` 请求返回 `HTTP 503 Service Unavailable`
+- 读操作（`GET`）不受影响
+- 解除方法：将开关设回 `"false"`
+
+---
+
+## 3. 防盗链
+
+通过验证请求的 `Referer` 头来防止图片被第三方站点盗用。
+
+**配置**：
 
 ```toml
 [vars]
-ALLOWED_REFERERS = "yourblog.com,another-site.com"
+ALLOWED_REFERERS = "https://example.com,https://blog.example.com"
 ```
 
-### 规则说明
+**规则**：
+- 支持通配符匹配（`https://*.example.com`）
+- 空 Referer 的请求（如直接浏览器访问、App 请求）默认允许
+- 多个域名用逗号分隔
+- 设为空字符串时，只允许空 Referer 的请求
+- 不设置时默认为 `*`（允许所有）
 
-- 多个域名用英文逗号分隔
-- 支持通配符子域名：`*.yourblog.com`
-- 域名不包含协议前缀（`http://` 或 `https://`）
-- 空值表示禁用防盗链检查
-- 支持 `Referer` 和 `Origin` 两种请求头
-
-### 示例
-
-```toml
-# 允许主域名和所有子域名
-ALLOWED_REFERERS = "example.com,*.example.com"
-
-# 允许多个独立域名
-ALLOWED_REFERERS = "blog.example.com,notes.example.org,forum.example.net"
-
-# 关闭防盗链（不推荐在生产环境使用）
-ALLOWED_REFERERS = ""
-```
+**分享链接绕过**：带有效 `__share_sig` 签名的请求自动跳过防盗链检查。
 
 ---
 
-## 2. HMAC 签名验证
+## 4. 签名认证
 
-### 工作原理
+所有写操作（上传、删除）和分享链接支持 HMAC 签名认证。
 
-对图片链接使用 HMAC-SHA256 算法生成带有效期的签名，防止 URL 被篡改或长期滥用。
-
-### 签名生成算法
-
-```
-signature = HMAC-SHA256(
-  key: SIGN_SECRET,
-  message: path + "|" + expiry_timestamp
-)
-```
-
-生成的签名链接格式：
-
-```
-https://img.example.com/path/to/image.png?sig={signature}&exp={expiry_timestamp}
-```
-
-### 使用签名生成脚本
-
-```bash
-npx tsx scripts/sign.ts /private/image.png 3600 YOUR_SIGN_SECRET
-```
-
-参数说明：
-| 参数 | 说明 | 示例 |
-|------|------|------|
-| 路径 | 图片路径 | `/private/image.png` |
-| 有效期 | 有效秒数 | `3600`（1小时） |
-| 密钥 | 与 `SIGN_SECRET` 一致 | `your-secret-key` |
-
-### 目录分级保护
-
-以下路径强制要求签名验证，即使 Referer 在白名单中也不豁免：
-
-| 路径前缀 | 用途 | 签名要求 |
-|----------|------|----------|
-| `/private/` | 私有图片 | 强制签名 |
-| `/draft/` | 草稿图片 | 强制签名 |
-| `/raw/` | 原始文件 | 强制签名 |
-
-### 紧急熔断（Emergency Lockdown）
-
-在极端情况下（如被爬虫攻击），可一键启用全站签名强制：
-
-```toml
-[vars]
-EMERGENCY_LOCKDOWN = "true"
-```
-
-启用后效果：
-- **所有请求**均需携带有效签名
-- Referer 白名单不再生效
-- 部署后约 30 秒内生效
-
----
-
-## 3. 请求频率限制（Rate Limit）
-
-### 工作原理
-
-基于 `CF-Connecting-IP` 请求头追踪每个 IP 的请求频率，支持滑动窗口计数器。
-
-### 配置
-
-```toml
-[vars]
-RATE_LIMIT_PER_MIN = "120"
-```
-
-### 限制规则
-
-| 限制类型 | 阈值 | 响应 |
-|----------|------|------|
-| 正常请求超限 | 超过 `RATE_LIMIT_PER_MIN` | `429 Too Many Requests` |
-| 404 惩罚 | 每分钟超过 20 次 404 | `403 Forbidden`，封禁 5 分钟 |
-
-### 404 惩罚机制
-
-此机制专门用于防御字典遍历攻击（攻击者尝试猜测文件名）：
-
-1. 每个 IP 维持一个 404 计数器
-2. 1 分钟内累计 20+ 次 404 请求
-3. 该 IP 被自动封禁 5 分钟（返回 403）
-4. 封禁期结束自动恢复
-
----
-
-## 4. 响应脱敏
-
-### 自动剥离的响应头
-
-Worker 在返回图片响应时会自动删除以下响应头：
-
-| 响应头 | 原因 |
-|--------|------|
-| `X-GitHub-*` | 暴露后端存储信息 |
-| `Server` | 暴露服务器类型 |
-| `Set-Cookie` | 防止 Cookie 泄漏 |
-| `X-Powered-By` | 暴露技术栈信息 |
-| `X-Runtime` | 暴露框架信息 |
-
----
-
-## 5. 路径安全
-
-### 路径穿越防护
-
-所有请求路径都会被检查是否包含 `..` 序列：
+### 签名生成
 
 ```typescript
-// 以下路径将被拒绝
-/../../etc/passwd
-/images/../../../secrets
-/..%2F..%2Fprivate-key
+import { createHmac } from "node:crypto";
+
+function generateSignature(
+  secret: string,
+  method: string,
+  path: string,
+  timestamp: number,
+  body?: string
+): string {
+  const message = `${method}\n${path}\n${timestamp}${body ? `\n${body}` : ""}`;
+  return createHmac("sha256", secret).update(message).digest("hex");
+}
+```
+
+### 请求签名
+
+```
+POST /upload
+X-Signature: <hex-encoded-hmac>
+X-Timestamp: 1717200000
+```
+
+### 验证规则
+
+1. 验证 `X-Timestamp` 与当前时间的差距不超过 300 秒（5 分钟容忍窗口）
+2. 使用 `SIGN_SECRET` 和请求参数重新计算签名
+3. 比较计算签名与请求签名的十六进制字符串是否相同（使用恒定时间比较）
+4. 验证通过后，将签名参数从请求中移除，继续处理
+
+### 分享链接签名
+
+```
+GET /share/images/photo.jpg?expires=1717200000
+```
+
+签名在 URL 中：重定向到 `/images/photo.jpg?__share_sig=xxx&__share_exp=1717200000`
+
+---
+
+## 5. 管理员认证
+
+管理面板采用双认证方案：
+
+### Cloudflare Access (Zero Trust)
+
+- 用户访问 `/admin` 时重定向到 Cloudflare Access 登录页面
+- 登录成功后 Cloudflare 添加 `Cf-Access-Authenticated-User-Email` 请求头
+- Worker 验证该邮箱是否在 `ADMIN_EMAILS` 白名单中
+- 额外的签名验证确保 Access Token 未被篡改
+
+### TOTP 双因素认证
+
+- 适用于无需配置 Zero Trust 的场景
+- 基于时间的一次性密码（RFC 6238）
+- 密钥通过 `ADMIN_TOTP_SECRET` Secret 设置
+- 用户通过 Authenticator App 获取 6 位验证码
+- 每个验证码有效期 30 秒，3 次失败后延迟 1 秒
+
+---
+
+## 6. 响应安全
+
+### 响应头清洗
+
+系统自动从上游 GitHub API 响应中移除以下敏感头：
+
+- `x-github-*`（请求 ID、认证信息等）
+- `x-ratelimit-*`（速率限制详情）
+- `set-cookie`（如有）
+- `access-control-allow-origin`（如有）
+
+### 安全响应头
+
+对所有响应添加以下安全头：
+
+```
+Content-Security-Policy: default-src 'self'; ...
+X-Content-Type-Options: nosniff
+X-Frame-Options: DENY
+Referrer-Policy: no-referrer-when-downgrade
 ```
 
 ---
 
-## 6. 管理员认证
+## 7. GitHub Token 安全
 
-### 认证方式
+- GitHub Token 通过环境变量 Secret 设置，不在代码中硬编码
+- Token 需要最小的必要权限（Contents 读+写，指定仓库）
+- 支持使用 Fine-grained Token，将权限限定到具体仓库
+- 建议定期轮换 Token（每 90 天）
 
-管理后台使用 Cloudflare Access 认证：
+### Token 泄露响应流程
 
-1. 请求到达 `/admin/*` 路由
-2. 检查 `Cf-Access-Authenticated-User-Email` 请求头
-3. 如果未认证，重定向到 Cloudflare Access 登录页面
-4. 认证通过后设置 Session Cookie，有效期为 24 小时
-
-### 配置要求
-
-需要在 Cloudflare Dashboard 中配置 Access 应用：
-1. 导航到 Zero Trust → Access → Applications
-2. 添加一个新应用，类型为 Self-hosted
-3. 设置应用域名为您的 Worker 域名
-4. 配置访问策略（如：仅允许特定邮箱或邮箱域名）
+1. **检测** — 通过审计日志或 GitHub 告警发现异常 API 调用
+2. **熔断** — 开启紧急熔断，阻止进一步写入
+3. **撤销** — 在 GitHub Settings 中立即撤销泄露的 Token
+4. **轮换** — 生成新 Token，通过 `wrangler secret put` 更新
+5. **审计** — 检查审计日志，确认是否有未授权的数据访问
 
 ---
 
-## 7. 最佳实践
+## 8. 审计日志
 
-### 推荐配置组合
+所有敏感操作都记录到 KV 审计日志，不可篡改。
 
-| 场景 | 推荐配置 |
-|------|----------|
-| 个人博客 | 防盗链 + 限流 |
-| 公开分享 | 防盗链 + 限流 + 签名 |
-| 私有存储 | 全部启用 |
-| 被攻击中 | 启用紧急熔断 |
+**记录的操作**：
 
-### 安全清单
+- 文件上传（文件路径、大小、仓库）
+- 文件删除（文件路径、仓库、操作人）
+- 仓库变更（创建、更新、删除）
+- 配置变更（熔断开关、速率限制等）
+- 管理员登录
 
-- [ ] `GITHUB_TOKEN` 使用最小权限（仅限存储仓库）
-- [ ] `SIGN_SECRET` 使用强随机密码
-- [ ] 配置合理的 `ALLOWED_REFERERS`
-- [ ] 启用限流保护
-- [ ] 敏感图片放在 `/private/` 目录下
-- [ ] 定期轮换 Token 和 Secret
-- [ ] 不要在代码中硬编码任何凭据
+**日志格式**：
 
-### 监控建议
+```json
+{
+  "timestamp": "2025-06-01T12:00:00.000Z",
+  "action": "file_delete",
+  "actor": "admin@example.com",
+  "details": {
+    "path": "/images/photo.jpg",
+    "repo": "main",
+    "sha": "abc123"
+  },
+  "ip": "203.0.113.1",
+  "userAgent": "Mozilla/5.0..."
+}
+```
 
-在 Cloudflare Dashboard 中关注：
-- 429/403 响应比例（可能表示攻击）
-- Worker 调用次数
-- GitHub API 调用频率
-- 缓存命中率
+**保留策略**：审计日志默认保留 90 天，可通过管理面板导出后删除。
 
 ---
 
-## 参考文档
+## 9. 最佳实践
 
-- [配置参考](./configuration.md) — 环境变量和 Secrets 详细说明
-- [架构详解](./architecture.md) — 安全模块在请求流程中的位置
-- [部署指南](./deployment.md) — Cloudflare Access 配置步骤
-- [多仓库路由](./multi-repo.md) — 多仓库架构下的安全注意事项
+### 部署前安全清单
+
+- [ ] GitHub Token 使用 Fine-grained 权限，仅限必要仓库
+- [ ] `SIGN_SECRET` 使用强随机字符串（至少 32 字节）
+- [ ] 已配置防盗链白名单
+- [ ] 已启用签名认证（`ENABLE_SIGNATURE=true`）
+- [ ] 已配置速率限制
+- [ ] 管理面板已启用认证
+- [ ] 自定义域名已启用 HTTPS
+- [ ] 删除了代码中的任何测试密钥或凭证
+
+### 运维安全
+
+- 定期轮换 GitHub Token 和 SIGN_SECRET
+- 定期审查审计日志
+- 保持 wrangler 和依赖包更新
+- 监控 GitHub API 使用量，避免超限
+- 配置 Cloudflare WAF 规则，限制管理路径的访问 IP
+
+### 紧急响应
+
+1. 发现异常 → 开启紧急熔断
+2. 审查审计日志
+3. 轮换泄露的密钥
+4. 分析根因
+5. 解除熔断（确认安全后）

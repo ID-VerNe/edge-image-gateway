@@ -1,286 +1,311 @@
-# Edge Image Gateway Usage Guide
+# 使用指南
 
-本文档说明如何在应用中集成和使用本图片代理服务。
+本文档介绍 Edge Image Gateway 的日常使用方法，包括文件管理、图片访问、分享链接生成等操作。
 
 ---
 
 ## 目录
 
-- [基础 URL 结构](#1-基础-url-结构)
-- [图片缩放与优化](#2-图片缩放与优化)
-- [安全与签名](#3-安全与签名)
-- [前端集成示例](#4-前端集成示例)
-- [Markdown 集成](#5-markdown-集成)
-- [命令行工具](#6-命令行工具)
-- [注意事项](#7-注意事项)
+- [管理面板](#管理面板)
+- [上传图片](#上传图片)
+- [访问与引用图片](#访问与引用图片)
+- [删除文件](#删除文件)
+- [生成分享链接](#生成分享链接)
+- [生成签名 URL](#生成签名-url)
+- [命令行签名工具](#命令行签名工具)
+- [图片处理参数](#图片处理参数)
+- [配置参考](#配置参考)
 
 ---
 
-## 1. 基础 URL 结构
+## 管理面板
 
-服务从 GitHub 仓库代理图片。基础 URL 格式为：
+部署完成后，访问 `https://你的域名/admin` 进入管理面板。
 
-```
-https://{your-domain}/{path_to_image}
-```
+管理面板提供以下功能：
 
-**示例：**
-
-```
-https://img.example.com/2026/06/my-image.jpg
-```
-
-路径对应的是仓库中的文件路径。例如仓库中 `images/blog/photo.jpg` 文件的访问 URL 就是：
-
-```
-https://img.example.com/images/blog/photo.jpg
-```
+| 功能 | 说明 |
+|------|------|
+| **文件浏览** | 树形目录浏览、网格/列表切换、搜索、批量选择 |
+| **回收站** | 查看已删除文件、清空回收站 |
+| **审计日志** | 查看所有敏感操作的历史记录 |
+| **API 令牌** | 生成和管理 API 访问令牌 |
+| **系统设置** | 仓库管理、统计面板、写目标配置 |
 
 ---
 
-## 2. 图片缩放与优化
+## 上传图片
 
-可通过 URL 查询参数动态调整图片尺寸和质量。
+### 通过管理面板上传
 
-| 参数 | 说明 | 示例 |
-| :--- | :--- | :--- |
-| `w` | 目标宽度（像素） | `?w=800` |
-| `h` | 目标高度（像素） | `?h=600` |
-| `q` | 输出质量（1-100） | `?q=75` |
-| `fit` | 缩放模式（`cover`、`contain`、`scale-down`） | `?fit=contain` |
+1. 打开文件浏览器，导航到目标目录
+2. 点击 **添加文件** 按钮或拖拽图片到文件区域
+3. 上传完成后自动显示文件 URL
 
-**优化示例：**
-
-```
-https://img.example.com/avatar.png?w=200&h=200&q=80&fit=cover
-```
-
-> **注意**：质量参数 `q` 在值为 100 时禁用有损压缩，建议日常使用设置为 80-85 以平衡质量与体积。
-
----
-
-## 3. 安全与签名
-
-如果环境变量 `ENABLE_SIGNATURE` 设置为 `true`，来自非白名单域名的请求需要携带 HMAC 签名才能访问图片。
-
-### 白名单访问
-
-配置在 `ALLOWED_REFERERS` 中的域名（如 `example.com`）发起的请求自动允许，无需签名。
-
-### 签名访问
-
-对于其他场景或受保护路径（`/private/`、`/draft/`、`/raw/`），必须附加签名参数：
-
-```
-URL: /{path}?sig={hmac}&exp={unix_timestamp}
-```
-
-签名算法为 `HMAC-SHA256(path + "|" + expiry, SIGN_SECRET)`。
-
-**临时签名分享示例**：
-
-```
-https://img.example.com/private/photo.jpg?sig=abc123def456&exp=1893456000
-```
-
-使用项目中的签名生成脚本可以快速生成签名链接：
+### 通过 API 上传
 
 ```bash
-# 生成有效期 1 小时的签名链接
-pnpm tsx scripts/sign.ts "/private/photo.jpg" 3600
+curl -X POST https://你的域名/admin/api/upload \
+  -H "Authorization: Bearer <你的API令牌>" \
+  -F "file=@/path/to/photo.jpg"
 ```
+
+支持的文件类型：`image/png`、`image/jpeg`、`image/webp`、`image/avif`、`image/gif`、`image/svg+xml`
+
+单文件大小限制：**25MB**
+
+上传响应示例：
+
+```json
+{
+  "url": "/photos/example-a1b2c3.jpg",
+  "fullUrl": "https://你的域名/photos/example-a1b2c3.jpg",
+  "path": "photos/example-a1b2c3.jpg",
+  "repo": "my-repo",
+  "size": 102400,
+  "sha256": "abc123...",
+  "uploadedAt": "2025-01-01T00:00:00.000Z",
+  "deduplicated": false
+}
+```
+
+> **注意**：上传后的文件名会自动添加内容哈希前缀和后缀时间戳，以确保全局唯一性。系统会自动去除 EXIF 等元数据以保护隐私。
 
 ---
 
-## 4. 前端集成示例
+## 访问与引用图片
 
-### React
+上传完成后，通过返回的 `url` 或 `fullUrl` 直接访问图片：
 
-```tsx
-import React from 'react';
-
-interface GatewayImageProps {
-  path: string;
-  width?: number;
-  height?: number;
-  quality?: number;
-  fit?: 'cover' | 'contain' | 'scale-down';
-  alt?: string;
-  className?: string;
-}
-
-const GatewayImage: React.FC<GatewayImageProps> = ({
-  path,
-  width,
-  height,
-  quality = 80,
-  fit,
-  alt = "",
-  className
-}) => {
-  const baseUrl = "https://img.example.com";
-  const params = new URLSearchParams();
-
-  if (width) params.append('w', width.toString());
-  if (height) params.append('h', height.toString());
-  params.append('q', quality.toString());
-  if (fit) params.append('fit', fit);
-
-  const src = `${baseUrl}/${path.replace(/^\//, '')}?${params.toString()}`;
-
-  return (
-    <img
-      src={src}
-      alt={alt}
-      className={className}
-      loading="lazy"
-    />
-  );
-};
-
-export default GatewayImage;
+```markdown
+![图片描述](https://你的域名/photos/example-a1b2c3.jpg)
 ```
-
-**使用示例：**
-
-```tsx
-<GatewayImage
-  path="blog/hero-banner.jpg"
-  width={1200}
-  height={630}
-  fit="cover"
-  alt="博客封面图"
-/>
-```
-
-### Vue 3
-
-```vue
-<template>
-  <img
-    :src="imageSrc"
-    :alt="alt"
-    :class="className"
-    loading="lazy"
-  />
-</template>
-
-<script setup lang="ts">
-import { computed } from 'vue'
-
-const props = withDefaults(defineProps<{
-  path: string
-  width?: number
-  height?: number
-  quality?: number
-  fit?: 'cover' | 'contain' | 'scale-down'
-  alt?: string
-  className?: string
-}>(), {
-  quality: 80,
-  alt: ''
-})
-
-const baseUrl = "https://img.example.com"
-
-const imageSrc = computed(() => {
-  const params = new URLSearchParams()
-  if (props.width) params.append('w', props.width.toString())
-  if (props.height) params.append('h', props.height.toString())
-  params.append('q', props.quality.toString())
-  if (props.fit) params.append('fit', props.fit)
-  const query = params.toString()
-  return `${baseUrl}/${props.path.replace(/^\//, '')}${query ? '?' + query : ''}`
-})
-</script>
-```
-
-### 原生 JavaScript
 
 ```html
-<img id="gateway-image" loading="lazy" alt="示例图片" />
-
-<script>
-function buildGatewayUrl(path, options = {}) {
-  const baseUrl = "https://img.example.com";
-  const params = new URLSearchParams();
-
-  if (options.width) params.append('w', options.width);
-  if (options.height) params.append('h', options.height);
-  if (options.quality) params.append('q', options.quality);
-  if (options.fit) params.append('fit', options.fit);
-
-  const query = params.toString();
-  return `${baseUrl}/${path.replace(/^\//, '')}${query ? '?' + query : ''}`;
-}
-
-const img = document.getElementById('gateway-image');
-img.src = buildGatewayUrl('blog/photo.jpg', {
-  width: 800,
-  quality: 85
-});
-</script>
+<img src="https://你的域名/photos/example-a1b2c3.jpg" alt="图片描述">
 ```
+
+### 图片处理
+
+支持实时图片处理，通过查询参数控制：
+
+```
+https://你的域名/photos/example-a1b2c3.jpg?width=800&height=600&format=webp
+```
+
+| 参数 | 说明 | 示例 |
+|------|------|------|
+| `width` | 宽度（像素） | `?width=400` |
+| `height` | 高度（像素） | `?height=300` |
+| `format` | 输出格式 | `?format=webp`、`?format=avif` |
+| `quality` | 质量（1-100） | `?quality=80` |
+
+> 图片处理依赖 Cloudflare Image Resizing 功能，需要相应的套餐支持。
 
 ---
 
-## 5. Markdown 集成
+## 删除文件
 
-在 Markdown 中直接引用图片，支持缩放参数：
+### 通过管理面板删除
 
-```markdown
-![示例图片](https://img.example.com/2026/photo.jpg?w=800&q=80)
-```
+在文件浏览器中选择文件或文件夹，点击删除按钮即可。删除的文件会移入回收站，可在回收站中查看或清空。
 
-结合图片缩放使用，适合在不同平台控制图片显示大小：
+### 通过 API 删除
 
-```markdown
-## 文章内图片
-
-<!-- 全宽图片 -->
-![风景图](https://img.example.com/landscape.jpg?w=1200&q=85)
-
-<!-- 缩略图 -->
-![头像](https://img.example.com/avatar.png?w=200&h=200&fit=cover)
-```
-
----
-
-## 6. 命令行工具
-
-### 使用 curl 测试
+删除单个文件：
 
 ```bash
-# 获取原始图片
-curl -O https://img.example.com/photo.jpg
-
-# 获取缩略图
-curl -o thumbnail.jpg "https://img.example.com/photo.jpg?w=200&q=70"
-
-# 获取响应头信息
-curl -I "https://img.example.com/photo.jpg"
+curl -X DELETE "https://你的域名/admin/api/files/photos/example-a1b2c3.jpg" \
+  -H "Authorization: Bearer <你的API令牌>"
 ```
 
-### 批量下载脚本
+删除整个目录：
 
 ```bash
-# 下载一组图片的缩略图（PowerShell）
-$baseUrl = "https://img.example.com"
-$images = @("photo1.jpg", "photo2.jpg", "photo3.jpg")
-
-foreach ($img in $images) {
-  $url = "$baseUrl/$img`?w=400&q=75"
-  Invoke-WebRequest -Uri $url -OutFile "thumb_$img"
-  Write-Host "已下载: $img"
-}
+curl -X DELETE "https://你的域名/admin/api/files/photos" \
+  -H "Authorization: Bearer <你的API令牌>" \
+  -H "Content-Type: application/json" \
+  -d '{"type": "dir"}'
 ```
 
 ---
 
-## 7. 注意事项
+## 生成分享链接
 
-1. **防盗链配置**：确保前端应用的域名已添加到环境变量 `ALLOWED_REFERERS` 中，否则在启用签名保护时会返回 403 错误。
-2. **缓存策略**：图片默认缓存 7 天（由 `CACHE_TTL_SECONDS` 控制），上传新图片后如未立即更新可等待缓存过期，或通过管理后台手动清除缓存。
-3. **路径大小写**：GitHub 仓库的文件路径区分大小写，请注意 URL 中的路径大小写需与仓库中完全一致。
-4. **签名有效期**：签名链接的 `exp` 参数使用 Unix 时间戳（秒），过期的签名链接将返回 403 错误。
-5. **图片格式**：推荐使用 JPEG/WebP 格式存储照片，PNG 格式存储截图或需要透明背景的图片。
+### 通过管理面板生成
+
+在文件浏览器中点击文件，打开预览侧边栏，点击 **生成分享链接** 按钮，设置过期时间即可。
+
+### 通过 API 生成
+
+```bash
+curl -X POST https://你的域名/admin/api/files/share \
+  -H "Authorization: Bearer <你的API令牌>" \
+  -H "Content-Type: application/json" \
+  -d '{"path": "/photos/example-a1b2c3.jpg", "expires": 3600}'
+```
+
+参数说明：
+
+| 参数 | 说明 | 默认值 |
+|------|------|--------|
+| `path` | 文件路径（必填） | — |
+| `expires` | 过期时间（秒） | `86400`（24小时） |
+
+响应示例：
+
+```json
+{
+  "success": true,
+  "sig": "abc123...",
+  "exp": 1700000000,
+  "url": "https://你的域名/photos/example-a1b2c3.jpg?sig=abc123...&exp=1700000000"
+}
+```
+
+分享链接直接粘贴到浏览器即可访问，无需认证。
+
+---
+
+## 生成签名 URL
+
+签名 URL 用于保护图片资源，防止未授权的第三方引用。支持两种方式：
+
+### 方式一：通过分享 API（推荐）
+
+使用上述[生成分享链接](#通过-api-生成)接口，附带 `expires` 参数即可。
+
+### 方式二：命令行签名工具
+
+项目提供了跨平台签名脚本，适用于 macOS、Linux 和 Windows：
+
+```bash
+npx tsx scripts/sign.ts /photos/example-a1b2c3.jpg 3600 your-sign-secret
+```
+
+参数说明：
+
+| 参数 | 说明 |
+|------|------|
+| 第 1 个参数 | 文件路径（以 `/` 开头） |
+| 第 2 个参数 | 有效期（秒） |
+| 第 3 个参数 | `SIGN_SECRET`（需与 wrangler 配置一致） |
+
+脚本输出：
+
+```text
+Signature: xyz789...
+Expires:   1700003600
+URL:       https://你的域名/photos/example-a1b2c3.jpg?sig=xyz789...&exp=1700003600
+```
+
+### 浏览器访问签名 URL
+
+将生成的完整 URL 粘贴到浏览器地址栏即可访问：
+
+```
+https://你的域名/photos/example-a1b2c3.jpg?sig=xyz789...&exp=1700003600
+```
+
+---
+
+## API 令牌管理
+
+在管理面板的 **API 令牌** 页面可以生成和管理访问令牌：
+
+1. 点击 **生成新令牌**，输入名称
+2. 复制生成的令牌（关闭后不可再次查看）
+3. 在 API 请求的 `Authorization` 头中使用
+
+所有使用令牌的 API 请求都会记录审计日志。
+
+---
+
+## 图片处理参数
+
+Edge Image Gateway 利用 Cloudflare Image Resizing 提供实时图片处理能力。支持的参数：
+
+| 参数 | 类型 | 说明 | 示例 |
+|------|------|------|------|
+| `width` | 整数 | 目标宽度（像素） | `?width=400` |
+| `height` | 整数 | 目标高度（像素） | `?height=300` |
+| `fit` | 字符串 | 缩放模式：`scale-down`、`contain`、`cover`、`crop`、`pad` | `?fit=cover` |
+| `format` | 字符串 | 输出格式：`auto`、`webp`、`avif`、`jpeg`、`png` | `?format=webp` |
+| `quality` | 整数 | 质量（1-100） | `?quality=80` |
+| `blur` | 整数 | 高斯模糊（3-250） | `?blur=50` |
+| `sharp` | 浮点数 | 锐化（0-10） | `?sharp=0.5` |
+| `brightness` | 浮点数 | 亮度（0-2，1 为原始） | `?brightness=1.2` |
+| `contrast` | 浮点数 | 对比度（0-2，1 为原始） | `?contrast=1.1` |
+| `gamma` | 浮点数 | 伽马值（0-10，1 为原始） | `?gamma=0.8` |
+
+示例：生成 400×300 的 WebP 缩略图
+
+```
+https://你的域名/photos/example-a1b2c3.jpg?width=400&height=300&fit=cover&format=webp&quality=80
+```
+
+---
+
+## 配置参考
+
+### wrangler.toml
+
+参考项目根目录的 `wrangler.toml.example` 文件。关键环境变量：
+
+```toml
+[vars]
+# HMAC 签名密钥（必填）
+SIGN_SECRET = "your-sign-secret"
+
+# 紧急熔断开关（可选，默认关闭）
+EMERGENCY_LOCKDOWN = "false"
+
+# 防盗链允许的 Referer（可选）
+ALLOWED_REFERERS = "https://你的域名,https://你的博客.com"
+
+# 管理面板管理员邮箱（可选，Access 认证用）
+ADMIN_EMAILS = "admin@example.com"
+
+# Telegram 告警机器人（可选）
+TELEGRAM_BOT_TOKEN = "xxx"
+TELEGRAM_CHAT_ID = "xxx"
+
+# Sentry 错误监控 DSN（可选）
+SENTRY_DSN = "https://xxx@xxx.ingest.us.sentry.io/xxx"
+```
+
+### 环境变量说明
+
+| 变量 | 说明 | 必填 |
+|------|------|------|
+| `SIGN_SECRET` | HMAC-SHA256 签名密钥，用于签名认证和分享链接 | 是 |
+| `GITHUB_TOKEN` | GitHub 个人访问令牌（在 Secrets 中配置，非 Vars） | 是 |
+| `REPO_REGISTRY` | Cloudflare KV 命名空间绑定 | 是 |
+| `EMERGENCY_LOCKDOWN` | 紧急熔断开关，设为 `true` 拒绝所有写操作 | 否 |
+| `ALLOWED_REFERERS` | 防盗链白名单，逗号分隔 | 否 |
+| `ADMIN_EMAILS` | 管理面板管理员邮箱白名单，逗号分隔（Access 认证用） | 否 |
+| `TELEGRAM_BOT_TOKEN` | Telegram 机器人 Token | 否 |
+| `TELEGRAM_CHAT_ID` | Telegram 告警聊天 ID | 否 |
+| `SENTRY_DSN` | Sentry 错误监控 DSN | 否 |
+
+---
+
+## 多仓库路由
+
+如果配置了多个 GitHub 仓库，上传时会根据仓库剩余容量自动路由到合适的仓库。详见 [多仓库管理](docs/multi-repo.md)。
+
+---
+
+## 常见问题
+
+**Q: 上传返回 401？**
+A: 需要提供有效的 API 令牌，或在管理面板中通过 Access 认证后操作。
+
+**Q: 图片访问返回 403？**
+A: 可能触发了防盗链规则或签名验证失败。检查 `ALLOWED_REFERERS` 配置和签名 URL 是否正确。
+
+**Q: 图片加载慢？**
+A: 首次访问会从 GitHub 拉取并缓存，后续请求由 Cloudflare 边缘节点响应。确保已正确配置缓存。
+
+**Q: 如何更换存储仓库？**
+A: 在管理面板的"系统设置"中添加新仓库，设置为写目标，旧仓库文件可迁移。

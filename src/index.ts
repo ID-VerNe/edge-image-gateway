@@ -5,7 +5,7 @@ import { rateLimitGuard } from './middleware/rateLimit';
 import { signatureGuard } from './middleware/signature';
 import { handleImageRequest } from './routes/image';
 import adminApp from './routes/admin';
-import { syncCapacity } from './services/cron';
+import { syncCapacity, cleanupTrash } from './services/cron';
 import { logger } from './utils/logger';
 import { alertThrottled } from './utils/notifications';
 
@@ -63,6 +63,13 @@ export default {
         logger.info('cron_sync_capacity', { results });
       } catch (err: any) {
         logger.error('cron_sync_capacity_error', { message: err.message });
+      }
+
+      try {
+        const trashResults = await cleanupTrash(env, ctx);
+        logger.info('cron_cleanup_trash', { trashResults });
+      } catch (err: any) {
+        logger.error('cron_cleanup_trash_error', { message: err.message });
       }
     })());
   }

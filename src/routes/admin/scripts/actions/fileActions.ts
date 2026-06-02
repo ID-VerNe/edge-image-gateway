@@ -30,13 +30,18 @@ export const FILE_ACTIONS = `
   }
 
   async function deleteItem(p, type) {
-    if(!confirm(\`Delete this \${type}? \${type === 'dir' ? '(All contents will be lost)' : ''}\`)) return;
-    showLoader('Deleting...');
+    if(!confirm(\`Move this \${type} to Recycle Bin?\`)) return;
+    showLoader('Moving to Trash...');
     try {
-      const res = await fetch('/admin/api/files/' + encodeURIComponent(p) + '?type=' + type, { method: 'DELETE' });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Delete failed');
-      showToast(\`Successfully deleted \${type}\`);
+      const today = new Date().toISOString().split('T')[0].replace(/-/g, '');
+      const targetDir = \`.trash/\${today}\`;
+      const res = await fetch('/admin/api/files/' + encodeURIComponent(p) + '/move', { 
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ targetDir })
+      });
+      if (!res.ok) throw new Error('Delete failed');
+      showToast(\`Moved to Recycle Bin\`);
     } catch(e) { 
       alert('Delete failed: ' + e.message); 
     }
@@ -46,20 +51,66 @@ export const FILE_ACTIONS = `
 
   async function bulkDelete() {
     if (selectedFiles.size === 0) return;
-    if(!confirm(\`Delete \${selectedFiles.size} items?\`)) return;
-    showLoader('Deleting...');
+    if(!confirm(\`Move \${selectedFiles.size} items to Recycle Bin?\`)) return;
+    showLoader('Moving to Trash...');
+    showProgress(true);
+    let i = 0;
+    const today = new Date().toISOString().split('T')[0].replace(/-/g, '');
+    const targetDir = \`.trash/\${today}\`;
+    for (const p of selectedFiles) {
+      updateProgress((i / selectedFiles.size) * 100, \`Moving \${i+1}/\${selectedFiles.size}\`);
+      try {
+        await fetch('/admin/api/files/' + encodeURIComponent(p) + '/move', { 
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ targetDir })
+        });
+      } catch(e) {}
+      i++;
+    }
+    showProgress(false);
+    hideLoader();
+    selectedFiles.clear();
+    updateBulkToolbar();
+    loadFiles(currentPath);
+  }
+
+  function showBatchRenameModal() {
+    if (selectedFiles.size === 0) return;
+    const modal = document.getElementById('batchRenameModal');
+    if(modal) modal.style.display = 'flex';
+  }
+  function hideBatchRenameModal() {
+    const modal = document.getElementById('batchRenameModal');
+    if(modal) modal.style.display = 'none';
+  }
+
+  async function applyBatchRename() {
+    const s = document.getElementById('renameSearch').value;
+    const r = document.getElementById('renameReplace').value;
+    if(!s && !r) return;
+    
+    hideBatchRenameModal();
+    showLoader('Renaming...');
     showProgress(true);
     let i = 0;
     for (const p of selectedFiles) {
-      updateProgress((i / selectedFiles.size) * 100, \`Deleting \${i+1}/\${selectedFiles.size}\`);
-      try {
-        const res = await fetch('/admin/api/files/' + encodeURIComponent(p), { method: 'DELETE' });
-        if (!res.ok) {
-           const data = await res.json();
-           console.error('Delete failed for ' + p, data.error);
-        }
-      } catch(e) {
-        console.error('Delete error for ' + p, e);
+      updateProgress((i / selectedFiles.size) * 100, \`Renaming \${i+1}/\${selectedFiles.size}\`);
+      const oldName = p.split('/').pop();
+      const newName = oldName.replace(s, r);
+      if (oldName !== newName) {
+        try {
+          const targetPath = p.substring(0, p.lastIndexOf('/') + 1) + newName;
+          await fetch('/admin/api/files/mutate', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ 
+              action: 'rename',
+              path: p,
+              newPath: targetPath
+            })
+          });
+        } catch(e) {}
       }
       i++;
     }
@@ -68,6 +119,101 @@ export const FILE_ACTIONS = `
     selectedFiles.clear();
     updateBulkToolbar();
     loadFiles(currentPath);
+  }
+
+  // Lightbox functions
+  function openLightbox(p, url) {
+    const lb = document.getElementById('lightbox');
+    const img = document.getElementById('lightbox-img');
+    const filename = document.getElementById('lightbox-filename');
+    
+    if(!lb || !img || !filename) return;
+    
+    filename.innerText = p.split('/').pop();
+    img.src = url;
+    
+    // Copy inputs
+    const directUrl = window.location.origin + url;
+    document.getElementById('copy-markdown').value = \`![\${filename.innerText}](\${directUrl})\`;
+    document.getElementById('copy-raw').value = directUrl;
+    document.getElementById('copy-html').value = \`<img src="\${directUrl}" alt="\${filename.innerText}">\`;
+    document.getElementById('copy-bbcode').value = \`[img]\${directUrl}[/img]\`;
+    document.getElementById('copy-signed').value = ''; // Clear until generated
+    
+    lb.style.display = 'flex';
+    currentLightboxPath = p;
+  }
+
+  function closeLightbox() {
+    const lb = document.getElementById('lightbox');
+    if(lb) lb.style.display = 'none';
+  }
+
+  async function generateAndCopySigned() {
+    if(!currentLightboxPath) return;
+    try {
+      const res = await fetch('/admin/api/files/share', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ path: currentLightboxPath, expiry: 86400 })
+      });
+      const data = await res.json();
+      if(data.url) {
+        const input = document.getElementById('copy-signed');
+        input.value = data.url;
+        input.select();
+        document.execCommand('copy');
+        showToast('Signed URL Copied');
+      }
+    } catch(e) { alert('Failed to generate signed URL'); }
+  }
+
+  async function restoreFile(p) {
+    showLoader('Restoring...');
+    try {
+      // Logic: move back from .trash/YYYYMMDD/path to path (strip .trash/YYYYMMDD/)
+      const parts = p.split('/');
+      const targetPath = parts.slice(2).join('/'); // Skip .trash and date
+      const targetDir = targetPath.substring(0, targetPath.lastIndexOf('/'));
+      
+      const res = await fetch('/admin/api/files/' + encodeURIComponent(p) + '/move', { 
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ targetDir })
+      });
+      if(!res.ok) throw new Error('Restore failed');
+      showToast('Item restored');
+      loadTrash();
+    } catch(e) { alert(e.message); }
+    hideLoader();
+  }
+
+  async function deleteFilePermanently(p) {
+    if(!confirm('Delete permanently? This cannot be undone.')) return;
+    showLoader('Deleting...');
+    try {
+      const res = await fetch('/admin/api/files/' + encodeURIComponent(p), { method: 'DELETE' });
+      if(!res.ok) throw new Error('Delete failed');
+      showToast('Deleted permanently');
+      loadTrash();
+    } catch(e) { alert(e.message); }
+    hideLoader();
+  }
+
+  async function emptyTrash() {
+     if(!confirm('Permanently delete all items in Recycle Bin?')) return;
+     showLoader('Emptying Trash...');
+     try {
+       // We can just delete the .trash directory entries one by one or have a bulk API
+       // For now, let's keep it simple and just do it turn by turn if needed, 
+       // but ideally we need an API to purge a prefix.
+       // We'll use the existing DELETE with a type=dir if supported.
+       const res = await fetch('/admin/api/files/.trash?type=dir', { method: 'DELETE' });
+       if(!res.ok) throw new Error('Emptying failed');
+       showToast('Trash emptied');
+       loadTrash();
+     } catch(e) { alert(e.message); }
+     hideLoader();
   }
 
   function showMoveModal() { 

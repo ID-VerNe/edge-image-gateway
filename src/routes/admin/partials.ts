@@ -14,6 +14,7 @@ export const PARTIALS = {
         </div>
       </div>
       <div class="sidebar-footer">
+        <div class="tree-item" id="nav-trash" onclick="switchView('trash')">🗑️ Recycle Bin</div>
         <div class="tree-item" id="nav-audit" onclick="switchView('audit')">📜 Audit Logs</div>
         <div class="tree-item" id="nav-tokens" onclick="switchView('tokens')">🔑 API Tokens</div>
         <div class="tree-item" id="nav-settings" onclick="switchView('repos')">⚙️ Settings</div>
@@ -27,11 +28,18 @@ export const PARTIALS = {
           <span id="selected-count">0 items selected</span>
           <button class="btn btn-danger" onclick="bulkDelete()">Delete selected</button>
           <button class="btn" onclick="showMoveModal()">Move to...</button>
+          <button class="btn" onclick="showBatchRenameModal()">Batch Rename</button>
           <button class="btn" onclick="clearSelection()">Cancel</button>
         </div>
       </div>
       <div class="toolbar">
-        <div class="breadcrumbs" id="breadcrumbs"></div>
+        <div style="display:flex; align-items:center;">
+          <div class="breadcrumbs" id="breadcrumbs"></div>
+          <div class="search-box">
+            <span class="search-icon">🔍</span>
+            <input type="text" class="search-input" id="file-search" placeholder="Search files ( / )" oninput="filterFiles(this.value)">
+          </div>
+        </div>
         <div class="actions">
           <button class="btn" onclick="toggleViewMode()" id="toggle-view-btn">Grid View</button>
           <button class="btn btn-primary" onclick="fi.click()">Add file</button>
@@ -40,6 +48,21 @@ export const PARTIALS = {
       </div>
       <div class="content-area">
         <div id="file-container" class="file-list-card"></div>
+      </div>
+    </main>
+  `,
+  mainTrash: `
+    <main id="main-trash" style="display: none;">
+      <div class="toolbar">
+        <div class="breadcrumbs"><span class="breadcrumb-item current">Recycle Bin</span></div>
+        <div class="actions">
+          <button class="btn btn-danger" onclick="emptyTrash()">Empty Trash</button>
+          <button class="btn" onclick="loadTrash()">Refresh</button>
+        </div>
+      </div>
+      <div class="content-area">
+         <p style="font-size:0.875rem; color:#57606a; margin-bottom:1rem;">Deleted items are kept for 30 days before permanent removal.</p>
+         <div id="trash-container" class="file-list-card"></div>
       </div>
     </main>
   `,
@@ -126,6 +149,63 @@ export const PARTIALS = {
       <div class="progress-text" id="upload-progress-text"></div>
     </div>
     <div id="dropzone"><h2>Drop to upload</h2></div>
+
+    <div id="lightbox" onclick="closeLightbox()">
+      <div class="lightbox-header">
+        <div id="lightbox-filename" style="font-weight:600;">image.jpg</div>
+        <button class="btn" style="background:transparent; border:none; color:#fff; font-size:1.5rem;" onclick="closeLightbox()">&times;</button>
+      </div>
+      <div style="display:flex; flex:1; min-height:0;">
+        <div class="lightbox-content">
+          <img id="lightbox-img" class="lightbox-img" src="" onclick="event.stopPropagation()">
+        </div>
+        <div class="lightbox-sidebar" onclick="event.stopPropagation()">
+          <div class="exif-hint">✨ <b>Privacy Guard Active</b>: Metadata and EXIF data have been automatically stripped from this image.</div>
+          
+          <div class="copy-group">
+            <label>Markdown</label>
+            <input type="text" id="copy-markdown" readonly onclick="this.select(); document.execCommand('copy'); toast('Copied Markdown')">
+          </div>
+          <div class="copy-group">
+            <label>Direct Link</label>
+            <input type="text" id="copy-raw" readonly onclick="this.select(); document.execCommand('copy'); toast('Copied URL')">
+          </div>
+          <div class="copy-group">
+            <label>HTML</label>
+            <input type="text" id="copy-html" readonly onclick="this.select(); document.execCommand('copy'); toast('Copied HTML')">
+          </div>
+          <div class="copy-group">
+            <label>BBCode</label>
+            <input type="text" id="copy-bbcode" readonly onclick="this.select(); document.execCommand('copy'); toast('Copied BBCode')">
+          </div>
+          
+          <hr style="border:0; border-top:1px solid #30363d; margin:1.5rem 0;">
+          
+          <div class="copy-group">
+            <label>Signed URL (24h)</label>
+            <div style="display:flex; gap:0.5rem;">
+              <input type="text" id="copy-signed" readonly style="flex:1;">
+              <button class="btn btn-mini" onclick="generateAndCopySigned()">Copy</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="modal" id="batchRenameModal">
+      <div class="modal-content">
+        <h3 style="margin-top:0">Batch Rename</h3>
+        <p style="font-size:0.875rem; color:#57606a;">Replace text in selected filenames.</p>
+        <div style="display:grid; gap:0.5rem; margin-bottom:1rem;">
+          <input type="text" id="renameSearch" placeholder="Search for..." style="width:100%; padding:0.5rem; border:1px solid var(--kami-border); border-radius:6px;">
+          <input type="text" id="renameReplace" placeholder="Replace with..." style="width:100%; padding:0.5rem; border:1px solid var(--kami-border); border-radius:6px;">
+        </div>
+        <div style="display:flex; justify-content:flex-end; gap:0.5rem;">
+          <button class="btn" onclick="hideBatchRenameModal()">Cancel</button>
+          <button class="btn btn-primary" onclick="applyBatchRename()">Rename All</button>
+        </div>
+      </div>
+    </div>
 
     <div class="modal" id="addTokenModal">
       <div class="modal-content">
