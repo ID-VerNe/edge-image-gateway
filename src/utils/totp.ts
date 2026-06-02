@@ -16,7 +16,7 @@ async function hmacSha1(key: ArrayBuffer, data: ArrayBuffer): Promise<ArrayBuffe
 
 function base32ToBuffer(base32: string): ArrayBuffer {
   const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
-  const cleaned = base32.toUpperCase().replace(/=/g, '');
+  const cleaned = base32.toUpperCase().replace(/=/g, '').replace(/\s/g, '');
   const len = cleaned.length;
   const buffer = new Uint8Array(Math.floor((len * 5) / 8));
 
@@ -35,6 +35,7 @@ function base32ToBuffer(base32: string): ArrayBuffer {
     if (bits >= 8) {
       buffer[index++] = (value >>> (bits - 8)) & 0xFF;
       bits -= 8;
+      value &= (1 << bits) - 1; // Mask to keep only the remaining bits
     }
   }
   return buffer.buffer;
