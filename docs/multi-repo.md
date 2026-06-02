@@ -227,3 +227,12 @@ private readonly CACHE_TTL_MS = 30_000;
 3. **Token 管理**：每个仓库可以指定不同的 `tokenSecretName`，使用不同的 GitHub Token
 4. **写仓库唯一性**：任何时候只有一个写仓库处于活跃状态
 5. **路径冲突**：确保路由前缀不重叠，否则先注册的规则生效
+
+---
+
+## 相关文档
+
+- [配置参考](./configuration.md) — KV 命名空间配置
+- [API 参考](./api-reference.md) — 仓库管理 API 详细说明
+- [管理后台指南](./admin-panel.md) — 通过管理 UI 管理多仓库
+- [架构详解](./architecture.md) — 路由模块在架构中的位置

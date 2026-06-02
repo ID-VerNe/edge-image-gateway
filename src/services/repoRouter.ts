@@ -87,6 +87,24 @@ export const getTokenFromEnv = (env: Bindings, tokenSecretName: string): string 
   return token || env.GITHUB_TOKEN; // fallback to default token
 };
 
+export interface PathRecord {
+  repoId: string;
+  hash?: string;
+}
+
+const getRepoIdFromRecord = (record: string | null): string | null => {
+  if (!record) return null;
+  if (record.startsWith('{')) {
+    try {
+      const parsed = JSON.parse(record) as PathRecord;
+      return parsed.repoId;
+    } catch {
+      return record;
+    }
+  }
+  return record;
+};
+
 export const resolveForRead = async (path: string, env: Bindings): Promise<ResolvedRepo> => {
   await ensureCache(env);
 
@@ -96,7 +114,8 @@ export const resolveForRead = async (path: string, env: Bindings): Promise<Resol
 
   // 1. Check exact path in KV (for files)
   if (env.REPO_REGISTRY) {
-    const repoId = await env.REPO_REGISTRY.get(`path::${path}`);
+    const record = await env.REPO_REGISTRY.get(`path::${path}`);
+    const repoId = getRepoIdFromRecord(record);
     if (repoId && cachedRepos.has(repoId)) {
       const repo = cachedRepos.get(repoId)!;
       return { meta: repo, token: getTokenFromEnv(env, repo.tokenSecretName) };
@@ -107,7 +126,8 @@ export const resolveForRead = async (path: string, env: Bindings): Promise<Resol
       const normalizedPath = path.endsWith('/') ? path : `${path}/`;
       const { keys } = await env.REPO_REGISTRY.list({ prefix: `path::${normalizedPath}`, limit: 1 });
       if (keys.length > 0) {
-        const repoId = await env.REPO_REGISTRY.get(keys[0].name);
+        const record = await env.REPO_REGISTRY.get(keys[0].name);
+        const repoId = getRepoIdFromRecord(record);
         if (repoId && cachedRepos.has(repoId)) {
           const repo = cachedRepos.get(repoId)!;
           return { meta: repo, token: getTokenFromEnv(env, repo.tokenSecretName) };

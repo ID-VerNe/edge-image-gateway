@@ -3,7 +3,7 @@ import { env, createExecutionContext, waitOnExecutionContext } from 'cloudflare:
 import { describe, it, expect } from 'vitest';
 import app from '../src/index';
 
-describe('Picbed CF Worker', () => {
+describe('Edge Image Gateway Worker', () => {
   it('responds with ok on /healthz', async () => {
     const request = new Request('http://localhost/healthz');
     const ctx = createExecutionContext();

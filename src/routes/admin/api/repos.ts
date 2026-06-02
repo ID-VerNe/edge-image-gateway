@@ -2,6 +2,7 @@ import { Hono } from 'hono';
 import { AppEnvironment } from '../../../types/env';
 import { listAllRepos, RepoMeta, getCurrentWriteId, getTokenFromEnv } from '../../../services/repoRouter';
 import { Buffer } from 'node:buffer';
+import { githubService } from '../../../services/github';
 
 const repoApi = new Hono<AppEnvironment>();
 
@@ -37,35 +38,19 @@ repoApi.post('/', async (c) => {
   if (!id || !owner || !name) return c.json({ error: 'Missing required fields' }, 400);
 
   const token = getTokenFromEnv(c.env, tokenSecretName || 'GITHUB_TOKEN');
-  const userAgent = 'cf-worker-edge-image-gateway';
+  
+  // Use a temporary ResolvedRepo object for GitHubService
+  const tempRepo = {
+    meta: { owner, name, branch: branch || 'main' } as any,
+    token
+  };
 
   // 1. Check if physical repo exists
-  const checkUrl = `https://api.github.com/repos/${owner}/${name}`;
-  const checkRes = await fetch(checkUrl, {
-    headers: {
-      'Authorization': `Bearer ${token}`,
-      'Accept': 'application/vnd.github.v3+json',
-      'User-Agent': userAgent
-    }
-  });
+  const exists = await githubService.fileExists('', tempRepo);
 
-  if (checkRes.status === 404) {
+  if (!exists) {
     // 2. Try to create the repo if missing
-    const createRes = await fetch('https://api.github.com/user/repos', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${token}`,
-        'Accept': 'application/vnd.github.v3+json',
-        'User-Agent': userAgent,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        name: name,
-        private: true,
-        description: 'Image storage for Edge Image Gateway',
-        auto_init: false
-      })
-    });
+    const createRes = await githubService.createRepository(owner, name, token);
 
     if (!createRes.ok) {
       const err = await createRes.text();
@@ -78,20 +63,12 @@ repoApi.post('/', async (c) => {
 
     // 3. Initialize with .keep file to create the branch
     const initBranch = branch || 'main';
-    await fetch(`https://api.github.com/repos/${owner}/${name}/contents/.keep`, {
-      method: 'PUT',
-      headers: {
-        'Authorization': `Bearer ${token}`,
-        'Accept': 'application/vnd.github.v3+json',
-        'User-Agent': userAgent,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        message: 'Initial commit via Edge Image Gateway',
-        content: Buffer.from('Storage initialized').toString('base64'),
-        branch: initBranch
-      })
-    });
+    await githubService.putFile(
+      '.keep',
+      tempRepo,
+      Buffer.from('Storage initialized').toString('base64'),
+      'Initial commit via Edge Image Gateway'
+    );
   }
 
   // 4. Register in KV

@@ -413,3 +413,12 @@ http://localhost:8787/private/documents/report.pdf?sig=abc123def456&exp=17040672
 | `404` | 未找到 | 文件或仓库不存在 |
 | `429` | 请求过多 | 超出速率限制 |
 | `500` | 服务器错误 | 内部处理异常 |
+
+---
+
+## 相关文档
+
+- [安全指南](./security.md) — 签名验证和防盗链的工作原理
+- [多仓库路由](./multi-repo.md) — 多仓库 API 的管理和使用
+- [管理后台指南](./admin-panel.md) — 管理后台前端操作说明
+- [架构详解](./architecture.md) — 完整的请求处理流程

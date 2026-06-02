@@ -215,3 +215,12 @@ Worker 在返回图片响应时会自动删除以下响应头：
 - Worker 调用次数
 - GitHub API 调用频率
 - 缓存命中率
+
+---
+
+## 参考文档
+
+- [配置参考](./configuration.md) — 环境变量和 Secrets 详细说明
+- [架构详解](./architecture.md) — 安全模块在请求流程中的位置
+- [部署指南](./deployment.md) — Cloudflare Access 配置步骤
+- [多仓库路由](./multi-repo.md) — 多仓库架构下的安全注意事项

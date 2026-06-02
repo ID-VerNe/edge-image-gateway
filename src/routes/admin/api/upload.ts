@@ -99,7 +99,7 @@ uploadApi.post('/', async (c) => {
 
     if (c.env.REPO_REGISTRY) {
       await c.env.REPO_REGISTRY.put(`hash::${hash}`, JSON.stringify(result));
-      await c.env.REPO_REGISTRY.put(`path::${path}`, repo.meta.id);
+      await c.env.REPO_REGISTRY.put(`path::${path}`, JSON.stringify({ repoId: repo.meta.id, hash }));
       repo.meta.sizeBytes += file.size;
       repo.meta.fileCount += 1;
       await c.env.REPO_REGISTRY.put(`repo::${repo.meta.id}`, JSON.stringify(repo.meta));

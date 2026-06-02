@@ -1,4 +1,4 @@
-name = "picbed-cf-github"
+name = "edge-image-gateway"
 main = "src/index.ts"
 compatibility_date = "2024-05-31"
 
@@ -13,7 +13,7 @@ binding = "REPO_REGISTRY"
 id = "YOUR_KV_NAMESPACE_ID"
 
 # 页面展示配置
-APP_TITLE = "My Private Picbed"
+APP_TITLE = "My Edge Image Gateway"
 APP_DESCRIPTION = "Ready to serve images from private storage."
 
 # 安全与性能

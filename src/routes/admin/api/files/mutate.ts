@@ -66,6 +66,13 @@ mutateApi.delete('/*', async (c) => {
         if (delRes.ok) {
           deletedCount++;
           if (c.env.REPO_REGISTRY) {
+            const recordStr = await c.env.REPO_REGISTRY.get(`path::${item.path}`);
+            if (recordStr && recordStr.startsWith('{')) {
+              try {
+                const record = JSON.parse(recordStr);
+                if (record.hash) await c.env.REPO_REGISTRY.delete(`hash::${record.hash}`);
+              } catch {}
+            }
             await c.env.REPO_REGISTRY.delete(`path::${item.path}`);
           }
         }
@@ -97,6 +104,15 @@ mutateApi.delete('/*', async (c) => {
     if (c.env.REPO_REGISTRY) {
       repo.meta.sizeBytes = Math.max(0, repo.meta.sizeBytes - (fileData.size || 0));
       repo.meta.fileCount = Math.max(0, repo.meta.fileCount - 1);
+      
+      const recordStr = await c.env.REPO_REGISTRY.get(`path::${path}`);
+      if (recordStr && recordStr.startsWith('{')) {
+        try {
+          const record = JSON.parse(recordStr);
+          if (record.hash) await c.env.REPO_REGISTRY.delete(`hash::${record.hash}`);
+        } catch {}
+      }
+      
       await c.env.REPO_REGISTRY.put(`repo::${repo.meta.id}`, JSON.stringify(repo.meta));
       await c.env.REPO_REGISTRY.delete(`path::${path}`);
     }

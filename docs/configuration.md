@@ -19,7 +19,7 @@ cp wrangler.toml.example wrangler.toml
 | `GITHUB_USER` | string | 是 | - | GitHub 用户名 |
 | `GITHUB_REPO` | string | 是 | - | 默认的存储仓库名 |
 | `GITHUB_BRANCH` | string | 否 | `main` | Git 分支 |
-| `APP_TITLE` | string | 否 | `Private Picbed` | 管理后台页面标题 |
+| `APP_TITLE` | string | 否 | `My Edge Image Gateway` | 管理后台页面标题 |
 | `APP_DESCRIPTION` | string | 否 | `Ready to serve images.` | 管理后台页面描述 |
 | `ALLOWED_REFERERS` | string | 否 | `""`(关闭) | 防盗链域名白名单，逗号分隔 |
 | `CACHE_TTL_SECONDS` | number | 否 | `604800`(7天) | 边缘缓存过期时间 |
@@ -98,11 +98,11 @@ KV 中存储的数据格式如下：
 
 ```toml
 [env.preview]
-name = "picbed-preview"
+name = "edge-image-gateway-preview"
 vars = { ALLOWED_REFERERS = "preview.yourdomain.com" }
 
 [env.production]
-name = "picbed"
+name = "edge-image-gateway"
 ```
 
 部署到指定环境：
@@ -118,7 +118,7 @@ npx wrangler deploy --env preview
 ### 示例配置模板
 
 ```toml
-name = "picbed-cf-github"
+name = "edge-image-gateway"
 main = "src/index.ts"
 compatibility_date = "2024-05-31"
 
@@ -126,7 +126,7 @@ compatibility_date = "2024-05-31"
 GITHUB_USER = "YOUR_GITHUB_USERNAME"
 GITHUB_REPO = "YOUR_STORAGE_REPO_NAME"
 GITHUB_BRANCH = "main"
-APP_TITLE = "My Private Picbed"
+APP_TITLE = "My Edge Image Gateway"
 APP_DESCRIPTION = "Ready to serve images from private storage."
 ALLOWED_REFERERS = ""
 CACHE_TTL_SECONDS = "604800"
@@ -137,3 +137,12 @@ RATE_LIMIT_PER_MIN = "120"
 binding = "REPO_REGISTRY"
 id = "YOUR_KV_NAMESPACE_ID"
 ```
+
+---
+
+## 相关文档
+
+- [安全指南](./security.md) — Secrets 的最佳实践和安全管理
+- [多仓库路由](./multi-repo.md) — KV 命名空间在多仓库架构中的作用
+- [部署指南](./deployment.md) — 完整的环境配置和 CI/CD 流程
+- [架构详解](./architecture.md) — 配置项对系统行为的影响

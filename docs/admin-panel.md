@@ -218,3 +218,12 @@ src/routes/admin/scripts/
 ### 主题定制
 
 默认使用 GitHub 风格的配色方案。如需自定义，可修改 [styles.ts](../src/routes/admin/styles.ts) 中的 CSS 变量。
+
+---
+
+## 相关文档
+
+- [API 参考](./api-reference.md) — 管理后台 API 详细说明
+- [安全指南](./security.md) — Cloudflare Access 认证配置
+- [多仓库路由](./multi-repo.md) — 多仓库管理
+- [架构详解](./architecture.md) — 前端模块与后端的数据流

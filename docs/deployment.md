@@ -19,7 +19,7 @@ cp wrangler.toml.example wrangler.toml
 编辑文件，填入以下信息：
 
 ```toml
-name = "picbed-cf-github"
+name = "edge-image-gateway"
 main = "src/index.ts"
 compatibility_date = "2024-05-31"
 
@@ -150,11 +150,11 @@ jobs:
 
 ```toml
 [env.preview]
-name = "picbed-preview"
+name = "edge-image-gateway-preview"
 vars = { ALLOWED_REFERERS = "preview.yourdomain.com" }
 
 [env.production]
-name = "picbed"
+name = "edge-image-gateway"
 ```
 
 ### 部署到指定环境
@@ -202,7 +202,7 @@ npx wrangler deploy --env preview
 2. 添加一条 CNAME 记录：
    - **Type**: CNAME
    - **Name**: 子域名（如 `img`）
-   - **Target**: 你的 Worker 域名（如 `picbed-cf-github.your-account.workers.dev`）
+   - **Target**: 你的 Worker 域名（如 `edge-image-gateway.your-account.workers.dev`）
    - **Proxy**: 开启（橙色云朵）
 3. 在 Worker 的 Triggers 选项卡中，添加自定义域名路由
 4. 更新 `wrangler.toml` 中的 `ALLOWED_REFERERS` 为新的自定义域名
@@ -279,3 +279,12 @@ CI/CD 会自动部署回滚后的版本。
 - 错误率超过阈值
 - 调用次数异常增长
 - 响应时间过长
+
+---
+
+## 相关文档
+
+- [配置参考](./configuration.md) — 环境变量和 Secrets 配置
+- [安全指南](./security.md) — Cloudflare Access 和签名密钥安全
+- [多仓库路由](./multi-repo.md) — KV 命名空间与多仓库部署
+- [开发与测试](./development.md) — 本地开发环境搭建

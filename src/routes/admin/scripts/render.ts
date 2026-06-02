@@ -63,7 +63,7 @@ export const RENDER = `
 
   function toggleViewMode() {
     viewMode = viewMode === 'list' ? 'grid' : 'list';
-    localStorage.setItem('picbed_view_mode', viewMode);
+    localStorage.setItem('gateway_view_mode', viewMode);
     const btn = document.getElementById('toggle-view-btn');
     if(btn) btn.innerText = viewMode === 'list' ? 'Grid View' : 'List View';
     loadFiles(currentPath);
