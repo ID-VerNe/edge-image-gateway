@@ -46,7 +46,18 @@ export const CSS = `
     display: flex;
     flex-direction: column;
     flex-shrink: 0;
+    overflow-y: hidden;
+  }
+  .sidebar-content {
+    flex: 1;
     overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+  }
+  .sidebar-footer {
+    border-top: 1px solid var(--kami-border);
+    padding: 0.5rem 0;
+    background: #fff;
   }
   .sidebar-header {
     padding: 1.5rem 1rem 0.5rem 1rem;
@@ -64,10 +75,17 @@ export const CSS = `
     cursor: pointer;
     color: var(--kami-ink);
     text-decoration: none;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
   .tree-item:hover { background: var(--github-gray); }
-  .tree-item.active { background: #fff; font-weight: 600; border-right: 2px solid #fd8c73; }
-  .tree-item i { font-size: 1rem; color: #636c76; width: 16px; text-align: center; }
+  .tree-item.active { background: #fff; font-weight: 600; color: var(--kami-blue); }
+  .tree-item i { font-size: 1rem; color: #636c76; width: 16px; text-align: center; font-style: normal; }
+  .tree-nested { padding-left: 1.25rem; }
+  .tree-item.folder::before { content: '📁'; font-size: 0.9rem; }
+  .tree-item.folder.open::before { content: '📂'; }
+  .tree-item.root::before { content: '🏠'; }
 
   main { flex: 1; display: flex; flex-direction: column; overflow-y: auto; background: #fff; }
   .toolbar {

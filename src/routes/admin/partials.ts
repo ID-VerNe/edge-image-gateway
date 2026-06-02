@@ -7,11 +7,15 @@ export const PARTIALS = {
   `,
   sidebar: `
     <aside>
-      <div class="sidebar-header">📦 Repositories</div>
-      <div id="repo-tree"></div>
-      <div class="sidebar-header">🛠 Navigation</div>
-      <div class="tree-item active" onclick="switchView('files')">Files</div>
-      <div class="tree-item" onclick="switchView('repos')">Settings</div>
+      <div class="sidebar-content">
+        <div class="sidebar-header">🛠 Navigation</div>
+        <div id="file-tree-sidebar">
+          <div class="tree-item root active" onclick="loadFiles('')">root</div>
+        </div>
+      </div>
+      <div class="sidebar-footer">
+        <div class="tree-item" id="nav-settings" onclick="switchView('repos')">⚙️ Settings</div>
+      </div>
     </aside>
   `,
   mainFiles: `

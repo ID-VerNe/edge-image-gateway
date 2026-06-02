@@ -4,7 +4,7 @@ export const NAVIGATION = `
     if (btn) btn.innerText = viewMode === 'list' ? 'Grid View' : 'List View';
     await loadRepos();
     await loadStats();
-    loadFiles(window.location.hash.replace('#', ''));
+    await loadFiles(window.location.hash.replace('#', ''));
   }
 
   async function loadStats() {
@@ -25,10 +25,6 @@ export const NAVIGATION = `
       const r = await fetch('/admin/api/repos');
       const data = await r.json();
       repos = data.repos;
-      const tree = document.getElementById('repo-tree');
-      if(tree) tree.innerHTML = repos.map(repo => \`
-        <div class="tree-item"><i>\${repo.status === 'active' ? '●' : '○'}</i> \${repo.id}</div>
-      \`).join('');
       
       const list = document.getElementById('repo-settings-list');
       if(list) list.innerHTML = repos.map(repo => \`
@@ -52,13 +48,40 @@ export const NAVIGATION = `
     selectedFiles.clear();
     if (typeof updateBulkToolbar === 'function') updateBulkToolbar();
     renderBreadcrumbs();
+    switchView('files');
+
     const container = document.getElementById('file-container');
     if(container) container.innerHTML = '<div style="padding:2rem; text-align:center;">Loading...</div>';
     try {
       const r = await fetch('/admin/api/files?prefix=' + encodeURIComponent(currentPath));
       const data = await r.json();
-      renderFileList(data.files || []);
+      const files = data.files || [];
+      renderFileList(files);
+      renderSidebarTree(files);
     } catch (e) { if(container) container.innerHTML = '<div style="padding:2rem;">Error loading files</div>'; }
+  }
+
+  function renderSidebarTree(currentFiles) {
+    const treeContainer = document.getElementById('file-tree-sidebar');
+    if (!treeContainer) return;
+
+    const folders = currentFiles.filter(f => f.type === 'dir');
+    const pathParts = currentPath ? currentPath.split('/') : [];
+    
+    // Simple tree rendering: always show root and current folders
+    let html = \`<div class="tree-item root \${!currentPath ? 'active' : ''}" onclick="loadFiles('')">root</div>\`;
+    
+    let build = '';
+    pathParts.forEach((p, i) => {
+      build += (i === 0 ? '' : '/') + p;
+      html += \`<div class="tree-item folder open active" style="padding-left: \${(i+1) * 1.25}rem" onclick="loadFiles('\${build}')">\${p}</div>\`;
+    });
+
+    folders.forEach(f => {
+      html += \`<div class="tree-item folder" style="padding-left: \${(pathParts.length + 1) * 1.25}rem" onclick="loadFiles('\${f.path}')">\${f.name}</div>\`;
+    });
+
+    treeContainer.innerHTML = html;
   }
 
   function renderBreadcrumbs() {
@@ -79,15 +102,15 @@ export const NAVIGATION = `
     document.querySelectorAll('main').forEach(m => m.style.display = 'none');
     const main = document.getElementById('main-' + v);
     if(main) main.style.display = 'flex';
+    
+    // Sidebar highlight
     document.querySelectorAll('aside .tree-item').forEach(i => i.classList.remove('active'));
-    // Sidebar sync
-    if(v === 'files') {
-        const item = document.querySelector('aside .tree-item:nth-child(4)');
-        if(item) item.classList.add('active');
-    }
     if(v === 'repos') {
-        const item = document.querySelector('aside .tree-item:nth-child(5)');
-        if(item) item.classList.add('active');
+      const settingsNav = document.getElementById('nav-settings');
+      if(settingsNav) settingsNav.classList.add('active');
+    } else if(v === 'files' && !currentPath) {
+       const rootNav = document.querySelector('.tree-item.root');
+       if(rootNav) rootNav.classList.add('active');
     }
   }
 `;
