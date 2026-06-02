@@ -31,11 +31,12 @@ let cachedCurrentWrite: string | null = null;
 let lastCacheTime = 0;
 const CACHE_TTL_MS = 30 * 1000;
 
-const ensureCache = async (env: Bindings) => {
+const ensureCache = async (env: Bindings, force: boolean = false) => {
   const now = Date.now();
-  if (now - lastCacheTime < CACHE_TTL_MS && cachedRepos.size > 0) {
+  if (!force && now - lastCacheTime < CACHE_TTL_MS && cachedRepos.size > 0) {
     return;
   }
+// ... rest of function logic remains same but uses force to bypass check
 
   try {
     if (!env.REPO_REGISTRY) {
@@ -173,15 +174,15 @@ export const resolveForWrite = async (env: Bindings, requiredBytes: number = 0):
   return getFallbackRepo(env);
 };
 
-export const listAllRepos = async (env: Bindings): Promise<RepoMeta[]> => {
-  await ensureCache(env);
+export const listAllRepos = async (env: Bindings, force: boolean = false): Promise<RepoMeta[]> => {
+  await ensureCache(env, force);
   if (cachedRepos.size === 0) {
     return [getFallbackRepo(env).meta];
   }
   return Array.from(cachedRepos.values());
 };
 
-export const getCurrentWriteId = async (env: Bindings): Promise<string> => {
-  await ensureCache(env);
+export const getCurrentWriteId = async (env: Bindings, force: boolean = false): Promise<string> => {
+  await ensureCache(env, force);
   return cachedCurrentWrite || 'fallback';
 };

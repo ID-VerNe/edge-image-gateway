@@ -5,8 +5,8 @@ import { listAllRepos, RepoMeta, getCurrentWriteId } from '../../../services/rep
 const repoApi = new Hono<AppEnvironment>();
 
 repoApi.get('/', async (c) => {
-  const repos = await listAllRepos(c.env);
-  const currentWriteId = await getCurrentWriteId(c.env);
+  const repos = await listAllRepos(c.env, true);
+  const currentWriteId = await getCurrentWriteId(c.env, true);
   return c.json({ repos, currentWriteId });
 });
 
@@ -54,6 +54,9 @@ repoApi.post('/route/write', async (c) => {
   if (!repoId) return c.json({ error: 'Missing repo ID' }, 400);
 
   await c.env.REPO_REGISTRY.put('route::current_write', repoId);
+  // Force refresh cache in this instance immediately
+  await getCurrentWriteId(c.env, true);
+  
   return c.json({ success: true, current_write: repoId });
 });
 
