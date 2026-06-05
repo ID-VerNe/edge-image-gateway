@@ -12,7 +12,24 @@ import { alertThrottled } from './utils/notifications';
 import { listAllRepos } from './services/repoRouter';
 import { checkConfig } from './utils/configCheck';
 
+import { FAVICON_BASE64 } from './utils/favicon';
+
 const app = new Hono<AppEnvironment>();
+
+// Serve Favicon
+const serveFavicon = (c: any) => {
+  const binary = atob(FAVICON_BASE64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+  c.header('Content-Type', 'image/png');
+  c.header('Cache-Control', 'public, max-age=31536000, immutable');
+  return c.body(bytes);
+};
+
+app.get('/favicon.ico', serveFavicon);
+app.get('/favicon.png', serveFavicon);
 
 // Health check (no middleware applied to avoid being blocked)
 app.get('/healthz', async (c) => {

@@ -7,6 +7,11 @@
   <img src="https://img.shields.io/badge/framework-Hono-3600ff?style=flat-square" alt="Hono">
   <img src="https://img.shields.io/badge/language-TypeScript-3178c6?style=flat-square&logo=typescript" alt="TypeScript">
   <img src="https://img.shields.io/badge/license-MIT-green?style=flat-square" alt="MIT License">
+  <br>
+  <img src="https://img.shields.io/badge/database-D1-f4a261?style=flat-square&logo=cloudflare" alt="Cloudflare D1">
+  <img src="https://img.shields.io/badge/cache-KV%20%7C%20R2-f38020?style=flat-square&logo=cloudflare" alt="KV + R2">
+  <img src="https://img.shields.io/badge/test-Vitest-6e9f18?style=flat-square&logo=vitest" alt="Vitest">
+  <img src="https://img.shields.io/badge/package-pnpm-f69220?style=flat-square&logo=pnpm" alt="pnpm">
 </p>
 
 ---
@@ -92,7 +97,7 @@
                     └──────────────────────┘
 ```
 
-详细架构说明见 [docs/architecture.md](docs/architecture.md) 及 [docs/architecture-overview.md](docs/architecture-overview.md)。
+详细架构说明见 [docs/architecture-overview.md](docs/architecture-overview.md)（全景图）和 [docs/architecture.md](docs/architecture.md)（模块详解）。
 
 ---
 
@@ -101,9 +106,10 @@
 ### 前置要求
 
 - [Node.js](https://nodejs.org/) >= 18
-- [pnpm](https://pnpm.io/) >= 9 (强制使用 pnpm)
-- [Cloudflare 账号](https://dash.cloudflare.com/) (需 D1, R2, KV, Workers 权限)
+- [pnpm](https://pnpm.io/) >= 9（强制使用 pnpm，`package.json` 中已配置 `packageManager`）
+- [Cloudflare 账号](https://dash.cloudflare.com/)（需 D1, R2, KV, Workers 权限）
 - 一个 [GitHub](https://github.com) 仓库（用于存储图片）
+- GitHub Personal Access Token（需 `Contents` 读写权限，建议 Fine-grained）
 
 ### 本地开发
 
@@ -112,7 +118,7 @@
 git clone <repo-url>
 cd edge-image-gateway
 
-# 安装依赖
+# 安装依赖（pnpm 会自动识别 packageManager 版本）
 pnpm install
 
 # 复制环境配置
@@ -127,16 +133,21 @@ pnpm exec wrangler d1 execute <DB_ID> --file=./scripts/schema.sql
 # 运行测试
 pnpm test
 
+# 类型检查
+pnpm typecheck
+
 # 本地启动开发服务器
 pnpm dev
 ```
 
 开发服务器默认运行在 `http://localhost:8787`。
 
+> **注意：** 本地开发时 GitHub API 调用是真实的，图片处理（Image Resizing）功能在本地不可用，需部署后测试。
+
 ### 一键部署
 
 ```bash
-# 部署到 Cloudflare Workers (生产环境)
+# 部署到 Cloudflare Workers（生产环境）
 pnpm exec wrangler deploy --env production
 ```
 
@@ -249,13 +260,28 @@ edge-image-gateway/
 | 文档 | 说明 |
 |------|------|
 | [使用指南](USAGE.md) | 日常使用、文件管理、签名生成、图片处理 |
-| [架构说明](docs/architecture.md) | 系统架构、请求流程、组件设计 |
-| [事故手册](docs/runbook.md) | **事故响应流程与紧急处置指南** |
-| [演练报告](docs/migration-dryrun-report.md) | 迁移引擎可靠性演练记录 |
-| [配置说明](docs/configuration.md) | 环境变量、KV 配置、wrangler 配置 |
-| [部署指南](docs/deployment.md) | 部署到 Cloudflare Workers 完整步骤 |
+| [架构总览](docs/architecture-overview.md) | 系统架构全景图、请求生命周期、缓存体系 |
+| [架构说明](docs/architecture.md) | 模块架构、请求流程、数据流、KV 键设计 |
+| [管理面板](docs/admin-panel.md) | 管理面板功能、认证方式、前端技术实现 |
+| [配置说明](docs/configuration.md) | 环境变量、KV 动态配置、多环境部署 |
+| [部署指南](docs/deployment.md) | 从零部署到 Cloudflare Workers 的完整步骤 |
 | [API 参考](docs/api-reference.md) | 所有 API 端点详细说明 |
-| [安全指南](docs/security.md) | 安全机制与最佳实践 |
+| [安全指南](docs/security.md) | 安全机制、认证鉴权、最佳实践 |
+| [多仓库管理](docs/multi-repo.md) | 多仓库路由、容量管理、仓库迁移 |
+| [开发指南](docs/development.md) | 本地开发、项目结构、测试与调试 |
+| [事故手册](docs/runbook.md) | 事故响应流程与紧急处置指南 |
+| [演练报告](docs/migration-dryrun-report.md) | 迁移引擎可靠性演练记录 |
+
+---
+
+## 贡献指南
+
+1. Fork 项目并创建功能分支
+2. 确保现有测试通过：`pnpm test && pnpm typecheck`
+3. 为新功能添加测试
+4. 提交 PR 并附上详细说明
+
+更多细节见 [docs/development.md](docs/development.md)。
 
 ---
 

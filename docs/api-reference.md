@@ -595,24 +595,4 @@ Retry-After: 60
   "error": "Too Many Requests",
   "message": "Rate limit exceeded. Try again in 60 seconds."
 }
-``` |
-| `500` | 服务器错误 | 内部异常 |
-| `503` | 服务不可用 | 紧急熔断已激活 |
-
----
-
-## 速率限制
-
-所有 API 端点共享全局速率限制。超限时返回：
-
-```
-HTTP/1.1 429 Too Many Requests
-Retry-After: 60
-```
-
-```json
-{
-  "error": "Too Many Requests",
-  "message": "Rate limit exceeded. Try again in 60 seconds."
-}
 ```

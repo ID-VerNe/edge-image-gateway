@@ -7,7 +7,7 @@
 | 工具 | 版本要求 | 安装方式 |
 |------|----------|----------|
 | Node.js | >= 18 | [nodejs.org](https://nodejs.org/) |
-| pnpm | >= 8 | `npm install -g pnpm` |
+| pnpm | >= 9（`package.json` 中 `packageManager` 指定为 `pnpm@10.27.0`） | `npm install -g pnpm` |
 | wrangler | 最新 | `pnpm add -g wrangler` |
 
 ### 本地开发环境搭建
@@ -88,14 +88,16 @@ edge-image-gateway/
 │   │   └── signature.ts          # 签名认证 + 紧急熔断检查
 │   ├── services/
 │   │   ├── cron.ts               # 定时任务
-│   │   ├── database.ts           # KV 数据访问层
+│   │   ├── database.ts           # D1/KV 数据访问层（一致性封装）
 │   │   ├── github.ts             # GitHub API 封装
+│   │   ├── repoMigration.ts      # 跨仓库迁移引擎（断点续传）
 │   │   └── repoRouter.ts         # 多仓库路由引擎
 │   ├── utils/
 │   │   ├── cache.ts              # 缓存管理
+│   │   ├── configCheck.ts        # 启动自检（Zod Schema 校验）
 │   │   ├── hash.ts               # 哈希工具
 │   │   ├── hmac.ts               # HMAC 签名工具
-│   │   ├── imageProcessor.ts     # 图片处理
+│   │   ├── imageProcessor.ts     # 图片处理（EXIF 剥离）
 │   │   ├── logger.ts             # 日志记录
 │   │   ├── mime.ts               # MIME 类型映射
 │   │   ├── notifications.ts      # 通知推送（Telegram）
@@ -199,11 +201,12 @@ pnpm test -- --coverage
 
 **测试类型：**
 
-| 类型 | 说明 | 适用场景 |
+| 类型 | 说明 | 文件示例 |
 |------|------|----------|
-| 单元测试 | 测试单个模块功能 | 工具函数、中间件逻辑 |
-| 集成测试 | 测试模块间交互 | 路由处理、API 端点 |
-| 中间件测试 | 测试中间件行为 | 认证、限流、防盗链 |
+| 单元测试 | 测试单个模块功能 | `tests/unit/rateLimit.spec.ts`、`signature.spec.ts`、`configCheck.spec.ts` |
+| 集成测试 | 测试模块间交互 | `tests/index.spec.ts` |
+| 一致性测试 | 验证 D1/KV 双写一致性 | `tests/unit/consistency.spec.ts` |
+| 路由测试 | 验证多仓库路由逻辑 | `tests/unit/repoRouter.spec.ts` |
 
 ### 测试配置
 

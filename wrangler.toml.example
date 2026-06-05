@@ -1,6 +1,7 @@
 name = "edge-image-gateway"
 main = "src/index.ts"
 compatibility_date = "2024-05-31"
+compatibility_flags = ["nodejs_compat"]
 
 [vars]
 # 环境标识 (production/development)
@@ -11,22 +12,10 @@ GITHUB_USER = "YOUR_GITHUB_USERNAME"
 GITHUB_REPO = "YOUR_STORAGE_REPO_NAME"
 GITHUB_BRANCH = "main"
 
-[[kv_namespaces]]
-binding = "REPO_REGISTRY"
-id = "YOUR_KV_NAMESPACE_ID"
-
-[[d1_databases]]
-binding = "DB"
-database_name = "YOUR_DATABASE_NAME"
-database_id = "YOUR_DATABASE_ID"
-
-[[r2_buckets]]
-binding = "CACHE_BUCKET"
-bucket_name = "YOUR_BUCKET_NAME"
-
 # 页面展示配置
 APP_TITLE = "My Edge Image Gateway"
 APP_DESCRIPTION = "Ready to serve images from private storage."
+EMERGENCY_LOCKDOWN = "false"
 
 # 安全与性能
 ALLOWED_REFERERS = "" 
@@ -36,21 +25,15 @@ RATE_LIMIT_PER_MIN = "120"
 
 # 管理认证
 ADMIN_EMAILS = "admin@example.com"
-# ADMIN_TOTP_SECRET (通过 wrangler secret put 设置)
 
-# 可选：Cloudflare 集成
-# CF_ZONE_ID = "your-zone-id"
-# CF_API_TOKEN (通过 wrangler secret put 设置)
+[[kv_namespaces]]
+binding = "REPO_REGISTRY"
+id = "YOUR_KV_NAMESPACE_ID"
 
-# 可选：监控告警
-# SENTRY_DSN (通过 wrangler secret put 设置)
-# TELEGRAM_BOT_TOKEN (通过 wrangler secret put 设置)
-# TELEGRAM_CHAT_ID (通过 wrangler secret put 设置)
-
-# 可选：Analytics Engine
-# [[analytics_engine_datasets]]
-# binding = "ANALYTICS_ENGINE"
-# dataset = "edge_image_gateway"
+[[d1_databases]]
+binding = "DB"
+database_name = "YOUR_DATABASE_NAME"
+database_id = "YOUR_DATABASE_ID"
 
 [env.preview]
 name = "img-proxy-preview"
@@ -58,4 +41,35 @@ vars = { ALLOWED_REFERERS = "preview.yourdomain.com" }
 
 [env.production]
 name = "img-proxy"
-# routes = [{ pattern = "your-custom-domain.com/*", custom_domain = true }]
+compatibility_flags = ["nodejs_compat"]
+routes = [{ pattern = "your-custom-domain.com", custom_domain = true }]
+kv_namespaces = [
+  { binding = "REPO_REGISTRY", id = "YOUR_PRODUCTION_KV_ID" }
+]
+d1_databases = [
+  { binding = "DB", database_name = "YOUR_PRODUCTION_DB_NAME", database_id = "YOUR_PRODUCTION_DB_ID" }
+]
+r2_buckets = [
+  { binding = "CACHE_BUCKET", bucket_name = "YOUR_PRODUCTION_R2_BUCKET" }
+]
+
+[env.production.vars]
+GITHUB_USER = "YOUR_GITHUB_USERNAME"
+GITHUB_REPO = "YOUR_STORAGE_REPO_NAME"
+GITHUB_BRANCH = "main"
+APP_TITLE = "My Edge Image Gateway"
+APP_DESCRIPTION = "Ready to serve images from private storage."
+EMERGENCY_LOCKDOWN = "false"
+ADMIN_EMAILS = "admin@example.com"
+ALLOWED_REFERERS = "your-custom-domain.com"
+CACHE_TTL_SECONDS = "604800"
+ENABLE_SIGNATURE = "true"
+RATE_LIMIT_PER_MIN = "120"
+
+# 可选：管理认证与 API 设置 (通过 wrangler secret put 设置)
+# CF_ZONE_ID
+# CF_API_TOKEN
+# GITHUB_TOKEN
+# ADMIN_PASSWORD
+# TELEGRAM_BOT_TOKEN
+# TELEGRAM_CHAT_ID

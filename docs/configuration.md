@@ -59,6 +59,17 @@ compatibility_date = "2024-05-31"
 binding = "REPO_REGISTRY"
 id = "your-kv-namespace-id"
 
+# D1 Database 绑定
+[[d1_databases]]
+binding = "DB"
+database_name = "edge-image-gateway-db"
+database_id = "your-d1-database-id"
+
+# R2 Bucket 绑定
+[[r2_buckets]]
+binding = "CACHE_BUCKET"
+bucket_name = "edge-image-gateway-cache"
+
 # 环境变量
 [vars]
 GITHUB_USER = "your-github-username"

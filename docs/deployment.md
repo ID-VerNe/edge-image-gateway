@@ -48,6 +48,33 @@ npx wrangler kv:namespace create "REPO_REGISTRY"
 
 将输出的 `id` 填入 `wrangler.toml` 的 `[[kv_namespaces]]` 配置中。
 
+### 5. 创建 D1 数据库（可选）
+
+如果使用 D1 作为主索引（推荐），需要创建 D1 数据库：
+
+```bash
+# 创建 D1 数据库
+npx wrangler d1 create edge-image-gateway-db
+
+# 输出示例:
+# ✅  Successfully created DB 'edge-image-gateway-db'
+# [[d1_databases]]
+# binding = "DB"
+# database_name = "edge-image-gateway-db"
+# database_id = "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+```
+
+将输出的 `database_id` 填入 `wrangler.toml` 的 `[[d1_databases]]` 配置中。
+
+### 6. 创建 R2 Bucket（可选）
+
+```bash
+# 创建 R2 Bucket（用于图片变体缓存）
+npx wrangler r2 bucket create edge-image-gateway-cache
+```
+
+将 bucket 名称填入 `wrangler.toml` 的 `[[r2_buckets]]` 配置中。
+
 ---
 
 ## 部署步骤
@@ -240,6 +267,8 @@ crons = ["0 */6 * * *"]  # 每 6 小时执行一次
 
 - [ ] GitHub Token 已生成且有 `repo` 权限（Fine-grained，最小权限）
 - [ ] KV Namespace 已创建并配置
+- [ ] D1 数据库已创建并初始化 Schema（如使用）
+- [ ] R2 Bucket 已创建（如使用）
 - [ ] 所有 Secrets 已通过 `wrangler secret put` 设置
 - [ ] Cloudflare Image Resizing 已启用（如需要图片处理功能）
 - [ ] 域名已通过 Cloudflare 代理（DNS 设置为 Proxied）
