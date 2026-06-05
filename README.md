@@ -7,6 +7,7 @@
   <img src="https://img.shields.io/badge/framework-Hono-3600ff?style=flat-square" alt="Hono">
   <img src="https://img.shields.io/badge/language-TypeScript-3178c6?style=flat-square&logo=typescript" alt="TypeScript">
   <img src="https://img.shields.io/badge/license-MIT-green?style=flat-square" alt="MIT License">
+  <img src="https://img.shields.io/badge/status-production--ready-brightgreen?style=flat-square" alt="Production Ready">
   <br>
   <img src="https://img.shields.io/badge/database-D1-f4a261?style=flat-square&logo=cloudflare" alt="Cloudflare D1">
   <img src="https://img.shields.io/badge/cache-KV%20%7C%20R2-f38020?style=flat-square&logo=cloudflare" alt="KV + R2">

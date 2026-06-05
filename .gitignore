@@ -4,5 +4,6 @@ dist
 .dev.vars
 .env
 wrangler.toml
+.idea/
 *plan*.md
 test-site/

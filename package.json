@@ -2,17 +2,17 @@
   "name": "edge-image-gateway",
   "version": "1.0.0",
   "type": "module",
-  "description": "",
-  "main": "index.js",
+  "description": "基于 Cloudflare Workers + GitHub 的边缘图片网关，具备图片托管、实时处理、多仓库管理、访问控制及管理面板等企业级功能",
+  "main": "src/index.ts",
   "scripts": {
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
     "test": "vitest run",
     "typecheck": "tsc --noEmit"
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
+  "keywords": ["cloudflare-workers", "image-hosting", "image-gateway", "github-storage", "edge-computing", "image-resizing", "picbed", "hono", "typescript", "d1", "r2", "kv"],
+  "author": "Edge Image Gateway Contributors",
+  "license": "MIT",
   "packageManager": "pnpm@10.27.0",
   "dependencies": {
     "hono": "^4.12.23",

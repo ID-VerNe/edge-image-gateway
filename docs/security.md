@@ -264,29 +264,25 @@ Referrer-Policy: no-referrer-when-downgrade
 
 ## 9. 最佳实践
 
-### 部署前安全清单
+### 日常运维
 
-- [ ] GitHub Token 使用 Fine-grained 权限，仅限必要仓库
-- [ ] `SIGN_SECRET` 使用强随机字符串（至少 32 字节）
-- [ ] 已配置防盗链白名单
-- [ ] 已启用签名认证（`ENABLE_SIGNATURE=true`）
-- [ ] 已配置速率限制
-- [ ] 管理面板已启用认证（Access 或 TOTP）
-- [ ] 自定义域名已启用 HTTPS
-- [ ] 删除了代码中的任何测试密钥或凭证
-- [ ] `.dev.vars` 和 `.env` 文件已加入 `.gitignore`（如使用）
+- 保持依赖更新，及时修复已知漏洞
+- 定期审查 WAF 规则和 IP 白名单
+- 关注 Cloudflare 安全公告和 GitHub 安全通告
+- 使用强密码管理器管理所有密钥
+- 为 GitHub 账号启用双因素认证
 
-### 运维安全
+### 安全加固
 
-| 任务 | 频率 | 说明 |
-|------|------|------|
-| 轮换 GitHub Token | 每 90 天 | 在 GitHub Settings 中重新生成 |
-| 轮换 SIGN_SECRET | 每 180 天 | 更新后需重新生成分享链接 |
-| 审查审计日志 | 每周 | 关注异常操作和未授权访问 |
-| 更新依赖 | 每月 | 运行 `pnpm update` 更新 wrangler、hono 等 |
-| 监控 API 用量 | 持续 | 避免 GitHub API 超限 |
+- 生产环境始终启用 `ENABLE_SIGNATURE=true`
+- 配置 `ALLOWED_REFERERS` 为精确域名列表
+- 使用 Cloudflare Access 而非 TOTP 作为管理认证（安全性更高）
+- GitHub Token 使用 Fine-grained 权限，仅限必要仓库
+- 定期审查审计日志，关注异常操作模式
 
-### 紧急响应流程
+### 应急响应
+
+详细应急响应流程见 [事故手册](runbook.md)。以下为快速参考：
 
 1. 发现异常 → 立即开启紧急熔断
 2. 审查审计日志，确定影响范围
