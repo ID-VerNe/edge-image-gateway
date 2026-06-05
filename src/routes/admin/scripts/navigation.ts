@@ -199,7 +199,11 @@ export const NAVIGATION = `
         let details = '';
         for (const k in log) {
           if (!['ts', 'user', 'action', 'ip'].includes(k)) {
-            details += \`<div style="display:inline-block; margin-right:0.75rem;"><span style="color:var(--text-2); font-size:0.7rem; font-weight:600;">\${k.toUpperCase()}</span> <span style="font-weight:500;">\${log[k]}</span></div>\`;
+            let val = log[k];
+            if (k.toLowerCase().includes('size')) {
+              val = formatBytes(parseInt(val, 10));
+            }
+            details += \`<div style="display:inline-block; margin-right:0.75rem;"><span style="color:var(--text-2); font-size:0.7rem; font-weight:600;">\${k.toUpperCase()}</span> <span style="font-weight:500;">\${val}</span></div>\`;
           }
         }
         

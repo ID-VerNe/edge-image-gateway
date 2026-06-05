@@ -43,7 +43,7 @@ export const RENDER = `
                 \${isDir 
                   ? \`<button class="btn btn-mini" style="flex:1" onclick="loadFiles('\${f.path}')">Open</button>\`
                   : \`
-                    <button class="btn btn-mini btn-primary" style="flex:1" onclick="copyLink('\${f.path}')">Copy</button>
+                    <button class="btn btn-mini btn-secondary" style="flex:1" onclick="copyLink('\${f.path}')">Copy</button>
                     <button class="btn btn-mini" style="flex:1" onclick="showShareModal('\${f.path}')">Share</button>
                     \`
                 }

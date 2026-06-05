@@ -1,11 +1,21 @@
 export const PARTIALS = {
-  header: (userEmail: string, appTitle: string) => `
-    <header>
-      <div class="logo" onclick="location.reload()">${appTitle}</div>
-      <div class="user-info">${userEmail}</div>
-    </header>
-  `,
-  sidebar: `
+  header: (userEmail: string, appTitle: string) => {
+    const userName = userEmail.split('@')[0];
+    const userInitial = userName.charAt(0).toUpperCase();
+    return `
+      <header>
+        <div class="logo" onclick="location.reload()">${appTitle}</div>
+        <div class="user-capsule">
+          <div class="user-avatar">${userInitial}</div>
+          <div class="user-details">
+            <div class="user-name">${userName}</div>
+            <div class="user-email">${userEmail}</div>
+          </div>
+        </div>
+      </header>
+    `;
+  },
+  sidebar: (appTitle: string) => `
     <aside>
       <div class="sidebar-content">
         <div class="nav-group">
@@ -36,7 +46,7 @@ export const PARTIALS = {
       </div>
       <div class="sidebar-footer">
         <div style="font-size: 0.75rem; color: var(--text-2); text-align: center; font-weight: 500;">
-          Yuu Image Host v2.1
+          ${appTitle}
         </div>
       </div>
     </aside>
@@ -89,17 +99,32 @@ export const PARTIALS = {
       </div>
       <div class="content-area">
          <div id="stats-dashboard" style="display:grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap:1.5rem; margin-bottom:2.5rem;">
-            <div class="stat-card">
-              <div class="stat-label">Total Repositories</div>
-              <div class="stat-value" id="stat-repos">-</div>
+            <div class="stat-card stats-highlight">
+              <div class="stats-icon icon-blue">
+                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>
+              </div>
+              <div>
+                <div class="stat-label">Total Repositories</div>
+                <div class="stat-value" id="stat-repos">-</div>
+              </div>
             </div>
-            <div class="stat-card">
-              <div class="stat-label">Total Images</div>
-              <div class="stat-value" id="stat-files">-</div>
+            <div class="stat-card stats-highlight">
+              <div class="stats-icon icon-indigo">
+                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><circle cx="8.5" cy="8.5" r="1.5"></circle><polyline points="21 15 16 10 5 21"></polyline></svg>
+              </div>
+              <div>
+                <div class="stat-label">Total Images</div>
+                <div class="stat-value" id="stat-files">-</div>
+              </div>
             </div>
-            <div class="stat-card">
-              <div class="stat-label">Total Storage Used</div>
-              <div class="stat-value" id="stat-size">-</div>
+            <div class="stat-card stats-highlight">
+              <div class="stats-icon icon-amber">
+                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path><polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline><line x1="12" y1="22.08" x2="12" y2="12"></line></svg>
+              </div>
+              <div>
+                <div class="stat-label">Total Storage Used</div>
+                <div class="stat-value" id="stat-size">-</div>
+              </div>
             </div>
          </div>
 
@@ -187,19 +212,31 @@ export const PARTIALS = {
           
           <div class="copy-group">
             <label>Markdown</label>
-            <input type="text" id="copy-markdown" readonly onclick="this.select(); document.execCommand('copy'); toast('Copied Markdown')">
+            <div style="display:flex; gap:0.5rem;">
+              <input type="text" id="copy-markdown" readonly onclick="this.select()">
+              <button class="btn btn-mini" onclick="copyWithFeedback(document.getElementById('copy-markdown').value, this)">Copy</button>
+            </div>
           </div>
           <div class="copy-group">
             <label>Direct Link</label>
-            <input type="text" id="copy-raw" readonly onclick="this.select(); document.execCommand('copy'); toast('Copied URL')">
+            <div style="display:flex; gap:0.5rem;">
+              <input type="text" id="copy-raw" readonly onclick="this.select()">
+              <button class="btn btn-mini" onclick="copyWithFeedback(document.getElementById('copy-raw').value, this)">Copy</button>
+            </div>
           </div>
           <div class="copy-group">
             <label>HTML</label>
-            <input type="text" id="copy-html" readonly onclick="this.select(); document.execCommand('copy'); toast('Copied HTML')">
+            <div style="display:flex; gap:0.5rem;">
+              <input type="text" id="copy-html" readonly onclick="this.select()">
+              <button class="btn btn-mini" onclick="copyWithFeedback(document.getElementById('copy-html').value, this)">Copy</button>
+            </div>
           </div>
           <div class="copy-group">
             <label>BBCode</label>
-            <input type="text" id="copy-bbcode" readonly onclick="this.select(); document.execCommand('copy'); toast('Copied BBCode')">
+            <div style="display:flex; gap:0.5rem;">
+              <input type="text" id="copy-bbcode" readonly onclick="this.select()">
+              <button class="btn btn-mini" onclick="copyWithFeedback(document.getElementById('copy-bbcode').value, this)">Copy</button>
+            </div>
           </div>
           
           <hr style="border:0; border-top:1px solid #1E293B; margin:2rem 0;">

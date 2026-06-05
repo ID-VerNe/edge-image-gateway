@@ -44,4 +44,26 @@ export const UTILS = `
     const i = Math.floor(Math.log(bytes) / Math.log(k));
     return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i];
   }
+
+  async function copyWithFeedback(text, btn) {
+    try {
+      await navigator.clipboard.writeText(text);
+      const oldText = btn.tagName === 'INPUT' ? btn.value : btn.innerText;
+      const isInput = btn.tagName === 'INPUT';
+      
+      if (isInput) {
+        toast('✓ Copied to clipboard');
+      } else {
+        btn.innerText = '✓ Copied';
+        btn.style.color = '#10B981'; // Emerald-500
+        setTimeout(() => {
+          btn.innerText = oldText;
+          btn.style.color = '';
+        }, 1500);
+      }
+    } catch (err) {
+      toast('Failed to copy');
+    }
+  }
 `;
+

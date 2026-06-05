@@ -190,10 +190,14 @@ npx wrangler kv:key put --binding=REPO_REGISTRY \
   "route::current_write" "repo-new"
 
 # 3. 用 git 迁移文件
-git clone https://github.com/owner/repo-old.git
-git clone https://github.com/owner/repo-new.git
-cp -r repo-old/* repo-new/
-cd repo-new && git add . && git commit -m "migrate" && git push
+git clone https://github.com/<owner>/repo-old.git
+git clone https://github.com/<owner>/repo-new.git
+
+# 将旧仓库文件复制到新仓库（Windows 用 xcopy /E，macOS/Linux 用 cp -r）
+xcopy /E /I repo-old\* repo-new\
+# 或: cp -r repo-old/* repo-new/
+
+cd repo-new && git add . && git commit -m "migrate files from old repo" && git push
 
 # 4. 完成迁移后删除旧仓库
 npx wrangler kv:key delete --binding=REPO_REGISTRY "repo::repo-old"

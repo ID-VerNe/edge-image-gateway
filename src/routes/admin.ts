@@ -93,7 +93,7 @@ adminApp.get('/', (c) => {
       ${PARTIALS.header(userEmail, appTitle)}
 
       <div class="app-container">
-        ${PARTIALS.sidebar}
+        ${PARTIALS.sidebar(appTitle)}
         ${PARTIALS.mainFiles}
         ${PARTIALS.mainRepos}
         ${PARTIALS.mainTokens}

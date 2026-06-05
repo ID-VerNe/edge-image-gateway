@@ -76,14 +76,33 @@ export const CSS = `
     color: var(--text-1);
     cursor: pointer;
   }
-  .user-info { 
-    font-size: 0.8125rem; 
-    color: var(--text-2);
-    background: var(--bg);
+  
+  .user-capsule {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
     padding: 0.375rem 0.75rem;
-    border-radius: var(--radius-sm);
+    background: var(--bg);
     border: 1px solid var(--border);
+    border-radius: 9999px;
+    cursor: default;
+    transition: all 0.2s;
   }
+  .user-capsule:hover { background: var(--surface); border-color: var(--primary); }
+  .user-avatar {
+    width: 28px;
+    height: 28px;
+    background: var(--primary);
+    color: #fff;
+    border-radius: 50%;
+    display: grid;
+    place-items: center;
+    font-size: 0.75rem;
+    font-weight: 700;
+  }
+  .user-details { line-height: 1.2; }
+  .user-name { font-size: 0.8125rem; font-weight: 600; color: var(--text-1); }
+  .user-email { font-size: 0.6875rem; color: var(--text-2); }
 
   .app-container { display: flex; flex: 1; overflow: hidden; }
 
@@ -276,8 +295,9 @@ export const CSS = `
     display: block; 
   }
   
-  .grid-actions { display: flex; gap: 0.5rem; opacity: 0; transition: opacity 0.2s; }
-  .grid-item:hover .grid-actions { opacity: 1; }
+  .grid-actions { display: flex; gap: 0.5rem; }
+  .btn-secondary { background: #EEF2FF; color: var(--primary); border-color: transparent; }
+  .btn-secondary:hover { background: #E0E7FF; }
 
   .stat-card {
     padding: 1.5rem;
@@ -286,8 +306,16 @@ export const CSS = `
     border-radius: var(--radius);
     box-shadow: var(--shadow-sm);
   }
-  .stat-label { font-size: 0.75rem; font-weight: 600; color: var(--text-2); text-transform: uppercase; margin-bottom: 0.5rem; }
-  .stat-value { font-size: 1.875rem; font-weight: 800; color: var(--text-1); letter-spacing: -0.025em; }
+  .stats-highlight { display: flex; align-items: center; gap: 1.25rem; }
+  .stats-icon { 
+    width: 48px; height: 48px; border-radius: 12px; display: grid; place-items: center; flex-shrink: 0;
+  }
+  .icon-blue { background: #E0F2FE; color: #0284C7; }
+  .icon-indigo { background: #EEF2FF; color: #4F46E5; }
+  .icon-amber { background: #FFF7ED; color: #D97706; }
+  
+  .stat-label { font-size: 0.75rem; font-weight: 600; color: var(--text-2); text-transform: uppercase; margin-bottom: 0.25rem; letter-spacing: 0.025em; }
+  .stat-value { font-size: 1.5rem; font-weight: 800; color: var(--text-1); letter-spacing: -0.025em; }
 
   table { width: 100%; border-collapse: collapse; }
   th { background: var(--bg); padding: 0.75rem 1rem; text-align: left; font-size: 0.75rem; font-weight: 600; text-transform: uppercase; color: var(--text-2); border-bottom: 1px solid var(--border); }

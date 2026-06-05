@@ -26,6 +26,7 @@
 - [API 总览](#api-总览)
 - [管理面板](#管理面板)
 - [安全](#安全)
+- [CI/CD](#cicd)
 - [技术栈](#技术栈)
 - [文档目录](#文档目录)
 - [贡献指南](#贡献指南)
@@ -144,6 +145,15 @@ pnpm dev
 
 > **注意：** 本地开发时 GitHub API 调用是真实的，图片处理（Image Resizing）功能在本地不可用，需部署后测试。
 
+### 可用命令
+
+| 命令 | 说明 |
+|------|------|
+| `pnpm dev` | 启动本地开发服务器（热更新） |
+| `pnpm test` | 运行所有测试 |
+| `pnpm typecheck` | TypeScript 类型检查 |
+| `pnpm deploy` | 部署到 Cloudflare Workers |
+
 ### 一键部署
 
 ```bash
@@ -216,11 +226,16 @@ edge-image-gateway/
 | `ENVIRONMENT` | 否 | 明文 | 运行环境 (`production` 或 `development`) |
 | `GITHUB_USER` | 是 | 明文 | GitHub 用户名或组织名 |
 | `GITHUB_REPO` | 是 | 明文 | 默认 GitHub 仓库名 |
+| `GITHUB_BRANCH` | 否 | 明文 | GitHub 仓库分支，默认 `main` |
 | `GITHUB_TOKEN` | 是 | Secret | GitHub Personal Access Token（需 `repo` 权限） |
 | `SIGN_SECRET` | 是 | Secret | HMAC 签名密钥 (长度需 >= 16) |
 | `ADMIN_EMAILS` | 否 | 明文 | 管理员邮箱白名单 (Cloudflare Access 认证) |
 | `EMERGENCY_LOCKDOWN` | 否 | 明文 | 紧急熔断开关，设为 `"true"` 拒绝所有写操作 |
 | `RATE_LIMIT_PER_MIN` | 否 | 明文 | 每分钟每 IP 最大请求数，默认 `120` |
+| `ENABLE_SIGNATURE` | 否 | 明文 | 全局强制签名模式，设为 `"true"` 所有非可信请求需签名 |
+| `ALLOWED_REFERERS` | 否 | 明文 | 防盗链 Referer 白名单，逗号分隔 |
+| `APP_TITLE` | 否 | 明文 | 首页展示标题，默认 `Edge Image Gateway` |
+| `APP_DESCRIPTION` | 否 | 明文 | 首页展示描述 |
 
 完整配置说明见 [docs/configuration.md](docs/configuration.md)。
 
@@ -235,6 +250,26 @@ edge-image-gateway/
 ## 安全
 
 详细安全文档见 [docs/security.md](docs/security.md)。
+
+---
+
+## CI/CD
+
+项目内置了 GitHub Actions 工作流（[deploy.yml](.github/workflows/deploy.yml)），支持自动部署：
+
+| 触发条件 | 行为 |
+|----------|------|
+| 推送到 `master` 分支 | 自动部署到生产环境 (`--env production`) |
+| 创建 Pull Request | 自动部署到预览环境 (`--env preview`) |
+
+**所需 GitHub Secrets：**
+
+| Secret | 说明 |
+|--------|------|
+| `CLOUDFLARE_API_TOKEN` | Cloudflare API Token（需 Workers 部署权限） |
+| `CLOUDFLARE_ACCOUNT_ID` | Cloudflare 账户 ID |
+
+> 提示：如需在 CI 中运行测试，可取消 `deploy.yml` 中测试步骤的注释。
 
 ---
 
@@ -270,7 +305,6 @@ edge-image-gateway/
 | [多仓库管理](docs/multi-repo.md) | 多仓库路由、容量管理、仓库迁移 |
 | [开发指南](docs/development.md) | 本地开发、项目结构、测试与调试 |
 | [事故手册](docs/runbook.md) | 事故响应流程与紧急处置指南 |
-| [演练报告](docs/migration-dryrun-report.md) | 迁移引擎可靠性演练记录 |
 
 ---
 

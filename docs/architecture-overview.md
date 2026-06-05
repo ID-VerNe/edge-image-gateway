@@ -77,7 +77,7 @@ graph TD
 
 ### 3.2 路由分发逻辑
 
-路由引擎 [src/services/repoRouter.ts](file:///c:/Users/VerNe/Downloads/Documents/picbed-cf-GitHub/src/services/repoRouter.ts) 负责将请求映射到具体的 GitHub 仓库：
+路由引擎 [src/services/repoRouter.ts](../src/services/repoRouter.ts) 负责将请求映射到具体的 GitHub 仓库：
 
 **读取路由**（`resolveForRead`）：
 1. D1 精确路径查询（`paths` 表）
@@ -112,7 +112,7 @@ graph TD
 
 - **路径编码**：自动对路径各段进行 `encodeURIComponent`
 - **SHA256 哈希**：上传时计算文件哈希，支持去重
-- **元数据剥离**：上传 JPEG/PNG 时自动移除 EXIF 等元数据（[src/utils/imageProcessor.ts](file:///c:/Users/VerNe/Downloads/Documents/picbed-cf-GitHub/src/utils/imageProcessor.ts)）
+- **元数据剥离**：上传 JPEG/PNG 时自动移除 EXIF 等元数据（[src/utils/imageProcessor.ts](../src/utils/imageProcessor.ts)）
 - **速率监控**：每次 API 调用后记录 `X-RateLimit-Remaining`，低于 1000 时触发 Telegram 告警
 
 ### 4.2 多仓库水平扩展
@@ -134,7 +134,7 @@ graph TD
 
 ### 4.3 仓库迁移
 
-支持将文件从源仓库迁移到目标仓库（[src/services/repoMigration.ts](file:///c:/Users/VerNe/Downloads/Documents/picbed-cf-GitHub/src/services/repoMigration.ts)）：
+支持将文件从源仓库迁移到目标仓库（[src/services/repoMigration.ts](../src/services/repoMigration.ts)）：
 
 - 基于 GitHub Tree API 枚举所有文件
 - 逐文件：检查目标是否存在 → 读取源内容 → 写入目标 → 更新索引 → 删除源文件
@@ -197,7 +197,7 @@ graph TD
 | **运维层** | 紧急熔断开关 | 一键全局锁定，所有访问强制签名验证 |
 | **数据层** | Token 隔离 | 每个仓库可使用独立 GitHub Token，权限最小化 |
 
-### 6.1 管理认证（[src/middleware/adminAuth.ts](file:///c:/Users/VerNe/Downloads/Documents/picbed-cf-GitHub/src/middleware/adminAuth.ts)）
+### 6.1 管理认证（[src/middleware/adminAuth.ts](../src/middleware/adminAuth.ts)）
 
 支持三种认证方式，优先级从高到低：
 
@@ -234,7 +234,7 @@ graph TD
 
 ## 8. 管理面板
 
-系统内置了一个完整的 SPA 管理后台（[src/routes/admin/](file:///c:/Users/VerNe/Downloads/Documents/picbed-cf-GitHub/src/routes/admin/)），功能包括：
+系统内置了一个完整的 SPA 管理后台（[src/routes/admin/](../src/routes/admin/)），功能包括：
 
 - **文件管理**：浏览、上传、删除、分享（生成带签名的临时链接）
 - **仓库管理**：注册新仓库、查看容量、管理仓库状态、迁移仓库

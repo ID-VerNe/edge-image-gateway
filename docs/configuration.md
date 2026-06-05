@@ -16,11 +16,14 @@ Edge Image Gateway 的配置分为三个层次：
 
 | 变量 | 类型 | 说明 | 示例 |
 |------|------|------|------|
+| `ENVIRONMENT` | 明文 | 运行环境标识 | `production` 或 `development` |
 | `GITHUB_USER` | 明文 | GitHub 用户名或组织名 | `my-username` |
 | `GITHUB_REPO` | 明文 | 默认的 GitHub 仓库名 | `my-image-hosting` |
 | `GITHUB_BRANCH` | 明文 | 仓库分支 | `main` |
 | `GITHUB_TOKEN` | **Secret** | GitHub Personal Access Token，需要 `repo` 权限 | `ghp_xxx` |
 | `SIGN_SECRET` | **Secret** | HMAC 签名密钥，用于分享链接和内部回环认证 | 随机字符串 |
+
+> `ENVIRONMENT` 设为 `production` 时，错误响应会隐藏堆栈信息，避免泄露内部细节。
 
 ### 可选变量
 

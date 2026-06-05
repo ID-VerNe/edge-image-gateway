@@ -283,6 +283,8 @@ crons = ["0 */6 * * *"]  # 每 6 小时执行一次
 
 ## 更新部署
 
+### 手动部署
+
 ```bash
 # 更新 Worker
 pnpm deploy
@@ -293,6 +295,25 @@ npx wrangler secret put GITHUB_TOKEN
 # 更新环境变量（编辑 wrangler.toml 后重新部署）
 pnpm deploy
 ```
+
+### 通过 CI/CD 自动部署
+
+项目已内置 GitHub Actions 工作流，配置后每次推送到 `master` 分支即可自动部署。
+
+**配置步骤：**
+
+1. 在 GitHub 仓库的 **Settings → Secrets and variables → Actions** 中添加以下 Secrets：
+
+| Secret | 说明 |
+|--------|------|
+| `CLOUDFLARE_API_TOKEN` | Cloudflare API Token（需 Workers 部署权限） |
+| `CLOUDFLARE_ACCOUNT_ID` | Cloudflare 账户 ID |
+
+2. 推送代码到 `master` 分支即可自动触发生产部署。
+
+3. 创建 Pull Request 时自动部署到预览环境。
+
+> 工作流定义见 [.github/workflows/deploy.yml](../.github/workflows/deploy.yml)。
 
 ---
 
