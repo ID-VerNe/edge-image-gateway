@@ -35,7 +35,7 @@ export const PARTIALS = {
         </div>
       </div>
       <div class="sidebar-footer">
-        <div style="font-size: 0.75rem; color: var(--text-2); text-align: center;">
+        <div style="font-size: 0.75rem; color: var(--text-2); text-align: center; font-weight: 500;">
           Yuu Image Host v2.1
         </div>
       </div>
@@ -53,14 +53,12 @@ export const PARTIALS = {
         </div>
       </div>
       <div class="toolbar">
-        <div class="flex items-center">
-          <div class="breadcrumbs" id="breadcrumbs"></div>
-          <div class="search-box">
-            <span class="search-icon">
-              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
-            </span>
-            <input type="text" class="search-input" id="file-search" placeholder="Search files..." oninput="filterFiles(this.value)">
-          </div>
+        <div class="breadcrumbs" id="breadcrumbs"></div>
+        <div class="search-box">
+          <span class="search-icon">
+            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+          </span>
+          <input type="text" class="search-input" id="file-search" placeholder="Search files..." oninput="filterFiles(this.value)">
         </div>
         <div class="actions">
           <button class="btn" onclick="toggleViewMode()" id="toggle-view-btn">
@@ -157,26 +155,35 @@ export const PARTIALS = {
   `,
   modals: `
     <div id="toast"></div>
+    
     <div class="loading-overlay" id="global-loader">
-      <div id="loader-status" style="font-weight: 600;">Processing...</div>
-      <div class="progress-bg" id="upload-progress-container" style="width: 300px; margin-top: 1rem; display: none;">
-        <div class="progress-fill" id="upload-progress-bar" style="background: var(--primary);"></div>
+      <div id="loader-status" style="font-weight: 600; color: #fff; margin-bottom: 1rem;">Processing...</div>
+      <div class="progress-bg" id="upload-progress-container" style="width: 300px; display: none; background: rgba(255,255,255,0.1); border: none;">
+        <div class="progress-fill" id="upload-progress-bar" style="background: var(--primary); height: 100%;"></div>
       </div>
-      <div class="progress-text" id="upload-progress-text"></div>
+      <div class="progress-text" id="upload-progress-text" style="color: rgba(255,255,255,0.7); font-size: 0.75rem; margin-top: 0.5rem;"></div>
     </div>
-    <div id="dropzone"><h2>Drop to upload</h2></div>
+    
+    <div id="dropzone">
+      <div style="text-align: center;">
+        <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: var(--primary); margin-bottom: 1rem;"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>
+        <h2>Drop files to upload</h2>
+      </div>
+    </div>
 
     <div id="lightbox" onclick="closeLightbox()">
       <div class="lightbox-header">
         <div id="lightbox-filename" style="font-weight:600; font-size: 1.125rem;">image.jpg</div>
-        <button class="btn" style="background:transparent; border:none; color:#fff; font-size:2rem;" onclick="closeLightbox()">&times;</button>
+        <button class="btn" style="background:transparent; border:none; color:#fff; cursor:pointer;" onclick="closeLightbox()">
+          <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+        </button>
       </div>
       <div style="display:flex; flex:1; min-height:0;">
         <div class="lightbox-content">
           <img id="lightbox-img" class="lightbox-img" src="" onclick="event.stopPropagation()">
         </div>
         <div class="lightbox-sidebar" onclick="event.stopPropagation()">
-          <div class="exif-hint">✨ <b>Privacy Guard</b>: EXIF data stripped automatically.</div>
+          <div class="exif-hint">✨ <b>Privacy Guard</b>: Metadata stripped automatically.</div>
           
           <div class="copy-group">
             <label>Markdown</label>
@@ -190,11 +197,15 @@ export const PARTIALS = {
             <label>HTML</label>
             <input type="text" id="copy-html" readonly onclick="this.select(); document.execCommand('copy'); toast('Copied HTML')">
           </div>
+          <div class="copy-group">
+            <label>BBCode</label>
+            <input type="text" id="copy-bbcode" readonly onclick="this.select(); document.execCommand('copy'); toast('Copied BBCode')">
+          </div>
           
           <hr style="border:0; border-top:1px solid #1E293B; margin:2rem 0;">
           
           <div class="copy-group">
-            <label>Signed URL (Temporary Access)</label>
+            <label>Signed URL (Temporary)</label>
             <div style="display:grid; gap:0.75rem;">
               <div style="display:flex; gap:0.5rem;">
                 <select id="copy-signed-expiry" style="flex:1; padding:0.5rem; background:#0d1117; border:1px solid #30363d; border-radius:6px; color:#c9d1d9; font-size:0.8125rem;">
@@ -214,7 +225,6 @@ export const PARTIALS = {
       </div>
     </div>
 
-    <!-- Modals (Batch Rename, Add Token, etc.) remain mostly the same structure but styled by CSS -->
     <div class="modal" id="batchRenameModal">
       <div class="modal-content">
         <h3>Batch Rename</h3>
@@ -238,7 +248,6 @@ export const PARTIALS = {
             <label style="display:block; font-weight:600; font-size:0.875rem; margin-bottom:0.5rem;">Token Name</label>
             <input type="text" id="tokenName" placeholder="e.g. PicGo Desktop" style="width:100%; padding:0.75rem; border:1px solid var(--border); border-radius:var(--radius-sm);">
           </div>
-
           <div>
             <label style="display:block; font-weight:600; font-size:0.875rem; margin-bottom:0.5rem;">Permissions</label>
             <div style="display: flex; gap: 1.5rem;">
@@ -247,12 +256,10 @@ export const PARTIALS = {
               <label class="flex items-center gap-2"><input type="checkbox" id="scopeDelete" value="delete"> Delete</label>
             </div>
           </div>
-
           <div>
             <label style="display:block; font-weight:600; font-size:0.875rem; margin-bottom:0.5rem;">Path Prefix (Optional)</label>
             <input type="text" id="tokenPathPrefix" placeholder="e.g. /photos/" style="width:100%; padding:0.75rem; border:1px solid var(--border); border-radius:var(--radius-sm);">
           </div>
-
           <div>
             <label style="display:block; font-weight:600; font-size:0.875rem; margin-bottom:0.5rem;">Expiration</label>
             <select id="tokenExpires" style="width:100%; padding:0.75rem; border:1px solid var(--border); border-radius:var(--radius-sm);">
@@ -263,12 +270,10 @@ export const PARTIALS = {
             </select>
           </div>
         </div>
-
         <div id="tokenDisplay" style="display:none; margin-top:1.5rem; padding:1.25rem; background:#fffbdd; border:1px solid #d0d7de; border-radius:var(--radius-sm); word-break:break-all;">
           <div style="font-weight:700; font-size:0.75rem; text-transform:uppercase; margin-bottom:0.5rem; color:#856404;">Save this token now!</div>
           <div id="tokenValue" style="color:var(--primary); font-weight:700; font-family:monospace; font-size:1rem;"></div>
         </div>
-
         <div style="display:flex; justify-content:flex-end; gap:0.75rem; margin-top:2rem;">
           <button class="btn" id="btnAddTokenCancel" onclick="hideAddTokenModal()">Cancel</button>
           <button class="btn btn-primary" id="btnGenerateToken" onclick="generateToken()">Generate</button>
@@ -312,6 +317,39 @@ export const PARTIALS = {
         <div style="display:flex; justify-content:flex-end; gap:0.75rem; margin-top:2rem;">
           <button class="btn" onclick="hideAddRepoModal()">Cancel</button>
           <button class="btn btn-primary" onclick="addRepo()">Register</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="modal" id="editRepoModal">
+      <div class="modal-content" style="width:520px;">
+        <h3>Edit Repository</h3>
+        <input type="hidden" id="editRepoOldId">
+        <div style="display:grid; gap:1.25rem;">
+          <div>
+            <label style="font-size:0.75rem; color:var(--text-2); font-weight:600; text-transform:uppercase; margin-bottom:0.5rem; display:block;">Repo ID</label>
+            <input type="text" id="editRepoId" style="width:100%; padding:0.75rem; border:1px solid var(--border); border-radius:var(--radius-sm);">
+          </div>
+          <div>
+            <label style="font-size:0.75rem; color:var(--text-2); font-weight:600; text-transform:uppercase; margin-bottom:0.5rem; display:block;">GitHub Owner</label>
+            <input type="text" id="editRepoOwner" style="width:100%; padding:0.75rem; border:1px solid var(--border); border-radius:var(--radius-sm);">
+          </div>
+          <div>
+            <label style="font-size:0.75rem; color:var(--text-2); font-weight:600; text-transform:uppercase; margin-bottom:0.5rem; display:block;">GitHub Repo Name</label>
+            <input type="text" id="editRepoName" style="width:100%; padding:0.75rem; border:1px solid var(--border); border-radius:var(--radius-sm);">
+          </div>
+          <div>
+            <label style="font-size:0.75rem; color:var(--text-2); font-weight:600; text-transform:uppercase; margin-bottom:0.5rem; display:block;">Branch</label>
+            <input type="text" id="editRepoBranch" style="width:100%; padding:0.75rem; border:1px solid var(--border); border-radius:var(--radius-sm);">
+          </div>
+          <div>
+            <label style="font-size:0.75rem; color:var(--text-2); font-weight:600; text-transform:uppercase; margin-bottom:0.5rem; display:block;">Capacity (Bytes)</label>
+            <input type="number" id="editRepoCapacity" style="width:100%; padding:0.75rem; border:1px solid var(--border); border-radius:var(--radius-sm);">
+          </div>
+        </div>
+        <div style="display:flex; justify-content:flex-end; gap:0.75rem; margin-top:2rem;">
+          <button class="btn" onclick="hideEditRepoModal()">Cancel</button>
+          <button class="btn btn-primary" onclick="updateRepo()">Save Changes</button>
         </div>
       </div>
     </div>
