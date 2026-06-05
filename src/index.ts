@@ -72,6 +72,12 @@ app.onError((err, c) => {
 });
 
 // Mount Admin UI and APIs
+app.use('/admin/api/*', async (c, next) => {
+  await next();
+  c.header('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+  c.header('Pragma', 'no-cache');
+  c.header('Expires', '0');
+});
 app.route('/admin', adminApp);
 
 // Main image routing

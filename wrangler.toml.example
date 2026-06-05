@@ -15,6 +15,15 @@ GITHUB_BRANCH = "main"
 binding = "REPO_REGISTRY"
 id = "YOUR_KV_NAMESPACE_ID"
 
+[[d1_databases]]
+binding = "DB"
+database_name = "YOUR_DATABASE_NAME"
+database_id = "YOUR_DATABASE_ID"
+
+[[r2_buckets]]
+binding = "CACHE_BUCKET"
+bucket_name = "YOUR_BUCKET_NAME"
+
 # 页面展示配置
 APP_TITLE = "My Edge Image Gateway"
 APP_DESCRIPTION = "Ready to serve images from private storage."

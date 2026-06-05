@@ -86,28 +86,45 @@ export const migrateRepo = async (job: RepoMigrationJob, env: Bindings) => {
           }
         }
 
-        // 4. Update index (KV & DB)
-        if (env.REPO_REGISTRY) {
-          await env.REPO_REGISTRY.put(`path::${file.path}`, JSON.stringify({ repoId: job.targetRepo }));
-        }
-        if (env.DB) {
-          await env.DB.prepare(`INSERT INTO paths (path, repo_id, size_bytes) VALUES (?, ?, ?) ON CONFLICT(path) DO UPDATE SET repo_id = excluded.repo_id`).bind(file.path, job.targetRepo, file.size).run();
-          await env.DB.prepare(`UPDATE repos SET used_bytes = used_bytes + ?, file_count = file_count + 1 WHERE id = ?`).bind(file.size, job.targetRepo).run();
+        // 4. Verify target exists and is readable before proceeding
+        const verifyExists = await githubService.fileExists(file.path, targetRepoObj, env);
+        if (!verifyExists) {
+          throw new Error(`Target verification failed: ${file.path} not found in target repo after write`);
         }
 
-        // 5. Verify target is readable, then delete source
-        const verifyExists = await githubService.fileExists(file.path, targetRepoObj, env);
-        if (verifyExists) {
-          const delRes = await githubService.deleteFile(
-            file.path,
-            sourceRepoObj,
-            file.sha,
-            `Delete source after migration ${job.jobId}`,
-            env
-          );
-          if (delRes.ok && env.DB) {
-             await env.DB.prepare(`UPDATE repos SET used_bytes = MAX(0, used_bytes - ?), file_count = MAX(0, file_count - 1) WHERE id = ?`).bind(file.size, job.sourceRepo).run();
+        // 5. Update index (D1 Primary, then KV Mirror)
+        if (env.DB) {
+          // Use a batch to keep repo stats and path index in sync
+          const batch = [
+            env.DB.prepare(`INSERT INTO paths (path, repo_id, size_bytes) VALUES (?, ?, ?) ON CONFLICT(path) DO UPDATE SET repo_id = excluded.repo_id, size_bytes = excluded.size_bytes`).bind(file.path, job.targetRepo, file.size),
+            env.DB.prepare(`UPDATE repos SET used_bytes = used_bytes + ?, file_count = file_count + 1 WHERE id = ?`).bind(file.size, job.targetRepo),
+            env.DB.prepare(`UPDATE repos SET used_bytes = MAX(0, used_bytes - ?), file_count = MAX(0, file_count - 1) WHERE id = ?`).bind(file.size, job.sourceRepo)
+          ];
+          await env.DB.batch(batch);
+        }
+
+        // Dual-write to KV (镜像)
+        if (env.REPO_REGISTRY) {
+          try {
+            await env.REPO_REGISTRY.put(`path::${file.path}`, JSON.stringify({ repoId: job.targetRepo }));
+          } catch (e) {
+            logger.warn('kv_migration_index_failed', { path: file.path, jobId: job.jobId, error: String(e) });
           }
+        }
+
+        // 6. Delete source ONLY after index is updated
+        const delRes = await githubService.deleteFile(
+          file.path,
+          sourceRepoObj,
+          file.sha,
+          `Delete source after migration ${job.jobId}`,
+          env
+        );
+        
+        if (!delRes.ok && delRes.status !== 404) {
+          logger.error('source_deletion_failed', { path: file.path, jobId: job.jobId, status: delRes.status });
+          // We don't throw here because the file is already safely in target and indexed.
+          // Leaving a ghost file in source is better than failing the whole migration.
         }
 
         job.migrated++;

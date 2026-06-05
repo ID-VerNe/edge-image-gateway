@@ -26,10 +26,14 @@ repoApi.post('/route/write', async (c) => {
   // Dual-write to KV (Background)
   if (c.env.REPO_REGISTRY) {
     c.executionCtx.waitUntil((async () => {
-      if (repo === 'fallback') {
-        await c.env.REPO_REGISTRY!.delete('route::current_write');
-      } else {
-        await c.env.REPO_REGISTRY!.put('route::current_write', repo);
+      try {
+        if (repo === 'fallback') {
+          await c.env.REPO_REGISTRY!.delete('route::current_write');
+        } else {
+          await c.env.REPO_REGISTRY!.put('route::current_write', repo);
+        }
+      } catch (e) {
+        logger.warn('kv_mirror_failed', { key: 'route::current_write', error: String(e) });
       }
     })());
   }
@@ -112,7 +116,13 @@ repoApi.post('/', async (c) => {
 
   // Dual-write to KV (Background)
   if (c.env.REPO_REGISTRY) {
-    c.executionCtx.waitUntil(c.env.REPO_REGISTRY.put(`repo::${id}`, JSON.stringify(newRepo)));
+    c.executionCtx.waitUntil((async () => {
+      try {
+        await c.env.REPO_REGISTRY!.put(`repo::${id}`, JSON.stringify(newRepo));
+      } catch (e) {
+        logger.warn('kv_mirror_failed', { key: `repo::${id}`, error: String(e) });
+      }
+    })());
   }
 
   c.executionCtx.waitUntil(logger.recordAudit(c, 'CREATE_REPO', { id, owner, name }));
@@ -163,14 +173,18 @@ repoApi.put('/:id', async (c) => {
   // Dual-write to KV (Background)
   if (c.env.REPO_REGISTRY) {
     c.executionCtx.waitUntil((async () => {
-      if (newId && newId !== oldId) {
-        await c.env.REPO_REGISTRY!.delete(`repo::${oldId}`);
-        const currentWrite = await c.env.REPO_REGISTRY!.get('route::current_write');
-        if (currentWrite === oldId) {
-          await c.env.REPO_REGISTRY!.put('route::current_write', newId);
+      try {
+        if (newId && newId !== oldId) {
+          await c.env.REPO_REGISTRY!.delete(`repo::${oldId}`);
+          const currentWrite = await c.env.REPO_REGISTRY!.get('route::current_write');
+          if (currentWrite === oldId) {
+            await c.env.REPO_REGISTRY!.put('route::current_write', newId);
+          }
         }
+        await c.env.REPO_REGISTRY!.put(`repo::${updatedRepo.id}`, JSON.stringify(updatedRepo));
+      } catch (e) {
+        logger.warn('kv_mirror_failed', { key: `repo::${updatedRepo.id}`, error: String(e) });
       }
-      await c.env.REPO_REGISTRY!.put(`repo::${updatedRepo.id}`, JSON.stringify(updatedRepo));
     })());
   }
 
@@ -207,7 +221,13 @@ repoApi.post('/:id/sync', async (c) => {
 
     // Dual-write to KV (Background)
     if (c.env.REPO_REGISTRY) {
-      c.executionCtx.waitUntil(c.env.REPO_REGISTRY.put(`repo::${id}`, JSON.stringify(repo.meta)));
+      c.executionCtx.waitUntil((async () => {
+        try {
+          await c.env.REPO_REGISTRY!.put(`repo::${id}`, JSON.stringify(repo.meta));
+        } catch (e) {
+          logger.warn('kv_mirror_failed', { key: `repo::${id}`, error: String(e) });
+        }
+      })());
     }
 
     c.executionCtx.waitUntil(logger.recordAudit(c, 'SYNC_REPO', { id, fileCount: blobs.length, sizeBytes: totalSize }));
@@ -238,10 +258,14 @@ repoApi.delete('/:id', async (c) => {
   // Dual-write to KV (Background)
   if (c.env.REPO_REGISTRY) {
     c.executionCtx.waitUntil((async () => {
-      await c.env.REPO_REGISTRY!.delete(`repo::${id}`);
-      const currentWrite = await c.env.REPO_REGISTRY!.get('route::current_write');
-      if (currentWrite === id) {
-        await c.env.REPO_REGISTRY!.delete('route::current_write');
+      try {
+        await c.env.REPO_REGISTRY!.delete(`repo::${id}`);
+        const currentWrite = await c.env.REPO_REGISTRY!.get('route::current_write');
+        if (currentWrite === id) {
+          await c.env.REPO_REGISTRY!.delete('route::current_write');
+        }
+      } catch (e) {
+        logger.warn('kv_mirror_failed', { key: `repo::${id}`, error: String(e) });
       }
     })());
   }

@@ -163,17 +163,21 @@ export const resolveForRead = async (
         return { meta: repo, token: getTokenFromEnv(env, repo.tokenSecretName) };
       }
     } catch (e) {
-      console.error('D1 path resolution failed:', e);
+      console.error('d1_read_failed_fallback_to_kv', { path, error: String(e) });
     }
   }
 
   // 2. Fallback to KV for exact path mapping (transition phase)
   if (env.REPO_REGISTRY) {
-    const record = await env.REPO_REGISTRY.get(`path::${path}`);
-    const repoId = getRepoIdFromRecord(record);
-    if (repoId && cachedRepos.has(repoId)) {
-      const repo = cachedRepos.get(repoId)!;
-      return { meta: repo, token: getTokenFromEnv(env, repo.tokenSecretName) };
+    try {
+      const record = await env.REPO_REGISTRY.get(`path::${path}`);
+      const repoId = getRepoIdFromRecord(record);
+      if (repoId && cachedRepos.has(repoId)) {
+        const repo = cachedRepos.get(repoId)!;
+        return { meta: repo, token: getTokenFromEnv(env, repo.tokenSecretName) };
+      }
+    } catch (e) {
+      console.error('kv_read_failed', { path, error: String(e) });
     }
 
     // Prefix search in KV
@@ -273,9 +277,9 @@ export const resolveForWrite = async (env: Bindings, requiredBytes: number = 0):
     }
   }
 
-  // Fallback: Return whatever we found as current write, or first repo, or fallback
+  // Fallback: Only return if it's active. Otherwise use getFallbackRepo.
   const finalRepo = currentRepo || cachedRepos.values().next().value as RepoMeta;
-  if (finalRepo) {
+  if (finalRepo && finalRepo.status === 'active') {
     return { meta: finalRepo, token: getTokenFromEnv(env, finalRepo.tokenSecretName) };
   }
 

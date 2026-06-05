@@ -37,7 +37,13 @@ mutateApi.post('/mkdir', async (c) => {
 
     // Dual-write to KV (Background)
     if (c.env.REPO_REGISTRY) {
-      c.executionCtx.waitUntil(c.env.REPO_REGISTRY.put(`path::${fullPath}`, repo.meta.id));
+      c.executionCtx.waitUntil((async () => {
+        try {
+          await c.env.REPO_REGISTRY!.put(`path::${fullPath}`, repo.meta.id);
+        } catch (e) {
+          logger.warn('kv_mirror_failed', { path: fullPath, repoId: repo.meta.id, error: String(e) });
+        }
+      })());
     }
 
     c.executionCtx.waitUntil(logger.recordAudit(c, 'MKDIR', { path }));

@@ -1,38 +1,24 @@
-# 生产化补强 TODO
+# Edge Image Gateway - 交付验收阶段 (P-A to P-E)
 
-这是一份基于 `plan.md` 和 `task.md` 的 Edge Image Gateway 生产化补强实施清单。
+## [x] P-A. D1 双写一致性验证
+- [x] 审计 `database.ts` 及调用方，确立 "D1 为主，KV 尽力同步" 的代码规范。
+- [x] 加固 `resolveForRead` 降级链，确保 D1 异常时不中断。
+- [x] 编写 `tests/unit/consistency.spec.ts` 覆盖半写、D1 宕机、数据不一致等场景。
 
-## P0: 核心底线 (安全与正确性)
-- [x] **P0-1: 核心模块测试**
-  - [x] 设立 `tests/unit/` 目录结构和 `helpers/mockKV.ts`
-  - [x] 编写 `tests/unit/repoRouter.spec.ts` (路由决策与超限切换)
-  - [x] 编写 `tests/unit/signature.spec.ts` (HMAC 签名校验防绕过)
-  - [x] 编写 `tests/unit/rateLimit.spec.ts` (限流与时间补充)
-- [x] **P0-2: 生产环境隐藏堆栈信息**
-  - [x] 在 `src/types/env.d.ts` 的 `Bindings` 中增加 `ENVIRONMENT: string`
-  - [x] 在 `wrangler.toml.example` (以及用户的 `wrangler.toml` 若有) 增加 `ENVIRONMENT = "production"`
-  - [x] 修改 `src/index.ts` 的 `app.onError`，生产环境隐藏堆栈并返回随机 `errorId` 关联 Sentry/Telegram
+## [x] P-B. 迁移引擎全量演练与并发竞态处理
+- [x] 调整 `repoMigration.ts` 顺序：先写目标 -> 验证目标 -> 更新索引 -> 再删源。
+- [x] 确保 `draining` 状态在路由的写操作中被绝对排除。
+- [x] 补充实际演练记录报告 `docs/migration-dryrun-report.md`。
 
-## P1: 可靠性与闭环
-- [x] **P1-1: GitHub Rate Limit 监控与告警**
-  - [x] 修改 `src/services/github.ts`，解析速率头并记录到 KV
-  - [x] 修改 `src/index.ts` 的 `/healthz`，返回 KV 中的各仓库速率限制信息
-  - [x] (可选) Cron 同步前检查配额，避免耗尽
-- [x] **P1-2: 多仓库迁移工具 (Draining 闭环)**
-  - [x] 在 `src/services/migration.ts` (或扩展现有的 mutate.ts) 中实现完整的 `draining` 迁移逻辑（支持断点续传）
-  - [x] 在 `/admin/api/repos/:id/migrate` 提供启动迁移的 API
-  - [x] 在 `src/services/cron.ts` 中添加被中断任务的自动续跑逻辑
+## [x] P-C. 事故响应手册 (Runbook)
+- [x] 新建 `docs/runbook.md`，覆盖被攻击熔断、Token 泄露、GitHub 故障、误删恢复、速率耗尽、D1 不可用等场景。
 
-## P2: 权限与配置防呆
-- [x] **P2-1: 令牌权限粒度与生命周期**
-  - [x] 扩展 Token 数据模型，增加 `scopes` (read/write/delete)、`pathPrefix`、`expiresAt`、`lastUsedAt`
-  - [x] 统一改造令牌鉴权中间件以支持细粒度权限校验
-  - [x] 更新对应的管理 API 和 UI，兼容新的令牌结构
-- [x] **P2-2: 启动期配置自检**
-  - [x] 使用 `zod` 在 `src/utils/configCheck.ts` 中编写必需环境变量和成对变量的 Schema 校验
-  - [x] 在 `/healthz` 端点中集成配置检查结果，缺失时不打印明文仅报字段错误
+## [x] P-D. 文档交叉对齐
+- [x] 以 `architecture-overview.md` 为基准，全面修正 `README.md`。
+- [x] 更新 README 中的技术栈 (D1, R2, Analytics)、缓存层级、API 总览及部署绑定说明。
 
-## P3: 文档与实现对齐
-- [x] **P3: 回收站数据模型对齐**
-  - [x] 确定回收站方案（真删并修改文档 vs. 软删存 KV 并加定期清理）
-  - [x] 落地代码或文档更改，确保行为与描述一致
+## [x] P-E. 安全与部署细节打钩
+- [x] 检查 `adminAuth.ts`，确保 `admin_session` Cookie 包含 `HttpOnly; Secure; SameSite=Strict`。
+- [x] 更新 `wrangler.toml.example`，补齐 D1, R2, Analytics Engine 等绑定。
+- [x] 移除 README 中误导性的 TOTP 已实现宣发（或明确标注规划中）。
+- [x] 确保所有 `/admin/api/*` 响应头带有 `Cache-Control: no-store`。

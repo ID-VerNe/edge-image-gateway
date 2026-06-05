@@ -88,13 +88,19 @@ statsApi.post('/tokens', async (c) => {
 
   // Dual-write to KV (Background)
   if (c.env.REPO_REGISTRY) {
-    c.executionCtx.waitUntil(c.env.REPO_REGISTRY.put(`auth::token::${token}`, JSON.stringify({ 
-      name, 
-      createdAt: now,
-      permissions,
-      pathPrefix,
-      expiresAt: expiresAtStr
-    })));
+    c.executionCtx.waitUntil((async () => {
+      try {
+        await c.env.REPO_REGISTRY!.put(`auth::token::${token}`, JSON.stringify({ 
+          name, 
+          createdAt: now,
+          permissions,
+          pathPrefix,
+          expiresAt: expiresAtStr
+        }));
+      } catch (e) {
+        logger.warn('kv_mirror_failed', { key: `auth::token::${token}`, error: String(e) });
+      }
+    })());
   }
 
   return c.json({ success: true, token, name, permissions, pathPrefix, expiresAt: expiresAtStr });
@@ -110,7 +116,13 @@ statsApi.delete('/tokens/:id', async (c) => {
 
   // Dual-write to KV (Background)
   if (c.env.REPO_REGISTRY) {
-    c.executionCtx.waitUntil(c.env.REPO_REGISTRY.delete(`auth::token::${id}`));
+    c.executionCtx.waitUntil((async () => {
+      try {
+        await c.env.REPO_REGISTRY!.delete(`auth::token::${id}`);
+      } catch (e) {
+        logger.warn('kv_mirror_failed', { key: `auth::token::${id}`, error: String(e) });
+      }
+    })());
   }
 
   return c.json({ success: true });
