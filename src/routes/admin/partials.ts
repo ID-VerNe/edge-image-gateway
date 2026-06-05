@@ -1,7 +1,7 @@
 export const PARTIALS = {
-  header: (userEmail: string) => `
+  header: (userEmail: string, appTitle: string) => `
     <header>
-      <div class="logo">Edge Image Gateway</div>
+      <div class="logo">${appTitle}</div>
       <div class="user-info">User: <strong>${userEmail}</strong></div>
     </header>
   `,

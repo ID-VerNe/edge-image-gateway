@@ -73,13 +73,14 @@ adminApp.post('/api/cache/purge', async (c) => {
 
 adminApp.get('/', (c) => {
   const userEmail = c.req.header('Cf-Access-Authenticated-User-Email') || 'Admin';
+  const appTitle = c.env.APP_TITLE || 'Edge Image Gateway';
   
   return c.html(`
     <!DOCTYPE html>
     <html lang="zh-CN">
     <head>
       <meta charset="utf-8">
-      <title>Edge Image Gateway - Admin</title>
+      <title>${appTitle} - Admin</title>
       <meta name="viewport" content="width=device-width, initial-scale=1.0">
       <link rel="icon" type="image/png" href="/favicon.png">
       <link rel="shortcut icon" href="/favicon.ico">
@@ -89,7 +90,7 @@ adminApp.get('/', (c) => {
       <style>${CSS}</style>
     </head>
     <body>
-      ${PARTIALS.header(userEmail)}
+      ${PARTIALS.header(userEmail, appTitle)}
 
       <div class="app-container">
         ${PARTIALS.sidebar}
