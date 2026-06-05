@@ -22,12 +22,19 @@ export const handleImageRequest = async (c: Context<AppEnvironment>) => {
     const title = c.env.APP_TITLE || 'Edge Image Gateway';
     const desc = c.env.APP_DESCRIPTION || 'Ready to serve images.';
     return c.html(`
+      <!DOCTYPE html>
       <html>
-        <head><title>${title}</title></head>
-        <body style="font-family: sans-serif; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0;">
+        <head>
+          <meta charset="utf-8">
+          <title>${title}</title>
+          <meta name="viewport" content="width=device-width, initial-scale=1.0">
+          <link rel="icon" type="image/png" href="/favicon.png">
+          <link rel="shortcut icon" href="/favicon.ico">
+        </head>
+        <body style="font-family: sans-serif; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; background-color: #f6f8fa;">
           <div style="text-align: center;">
-            <h1>🖼️ ${title}</h1>
-            <p>${desc}</p>
+            <h1 style="font-size: 2.5rem; margin-bottom: 0.5rem; color: #1f2328;">${title}</h1>
+            <p style="font-size: 1.125rem; color: #636c76;">${desc}</p>
           </div>
         </body>
       </html>
