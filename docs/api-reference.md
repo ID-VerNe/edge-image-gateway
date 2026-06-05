@@ -286,12 +286,15 @@ curl -v "https://image.example.com/share/images/photo.jpg?expires=$(( $(date +%s
 ### 仓库管理
 
 ```
-GET    /admin/api/repos              # 列出所有仓库
-POST   /admin/api/repos              # 创建新仓库
-GET    /admin/api/repos/:id          # 获取仓库详情
-PUT    /admin/api/repos/:id          # 更新仓库配置
-DELETE /admin/api/repos/:id          # 删除仓库
-POST   /admin/api/repos/:id/sync     # 同步仓库元数据
+GET    /admin/api/repos                  # 列出所有仓库
+POST   /admin/api/repos                  # 创建新仓库
+GET    /admin/api/repos/:id              # 获取仓库详情
+PUT    /admin/api/repos/:id              # 更新仓库配置
+DELETE /admin/api/repos/:id              # 删除仓库
+POST   /admin/api/repos/:id/sync         # 同步仓库元数据
+POST   /admin/api/repos/:id/migrate      # 启动仓库数据迁移
+GET    /admin/api/repos/migrations/:jobId # 获取迁移任务状态
+POST   /admin/api/repos/migrations/:jobId/resume # 继续已暂停的迁移任务
 ```
 
 **创建仓库请求体：**
@@ -539,7 +542,17 @@ GET /healthz
 {
   "ok": true,
   "version": "1.0.0",
+  "status": "ok",
   "env_configured": true,
+  "config": "valid",
+  "githubRate": [
+    {
+      "repo": "repo-main",
+      "limit": 5000,
+      "remaining": 4980,
+      "reset": 1717200000
+    }
+  ],
   "features": {
     "signature": true,
     "referer_protection": true
@@ -563,6 +576,26 @@ GET /healthz
 | `413` | 请求体过大 | 文件超出大小限制 |
 | `415` | 不支持的类型 | 不允许的文件 MIME 类型 |
 | `429` | 请求过多 | 速率超限 |
+| `500` | 服务器错误 | 内部异常 |
+| `503` | 服务不可用 | 紧急熔断已激活 |
+
+---
+
+## 速率限制
+
+所有 API 端点共享全局速率限制。超限时返回：
+
+```
+HTTP/1.1 429 Too Many Requests
+Retry-After: 60
+```
+
+```json
+{
+  "error": "Too Many Requests",
+  "message": "Rate limit exceeded. Try again in 60 seconds."
+}
+``` |
 | `500` | 服务器错误 | 内部异常 |
 | `503` | 服务不可用 | 紧急熔断已激活 |
 

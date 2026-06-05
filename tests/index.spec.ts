@@ -16,6 +16,7 @@ describe('Edge Image Gateway Worker', () => {
     const body: any = await response.json();
     expect(body.ok).toBe(true);
     expect(body.version).toBe('1.0.0');
-    expect(body).toHaveProperty('env_configured');
+    expect(body.status).toBe('config_error');
+    expect(body.config).toBeInstanceOf(Array);
   });
 });

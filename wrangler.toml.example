@@ -3,6 +3,9 @@ main = "src/index.ts"
 compatibility_date = "2024-05-31"
 
 [vars]
+# 环境标识 (production/development)
+ENVIRONMENT = "production"
+
 # 核心仓库配置
 GITHUB_USER = "YOUR_GITHUB_USERNAME"
 GITHUB_REPO = "YOUR_STORAGE_REPO_NAME"

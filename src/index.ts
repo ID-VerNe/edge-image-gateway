@@ -9,15 +9,35 @@ import { syncCapacity } from './services/cron';
 import { logger } from './utils/logger';
 import { alertThrottled } from './utils/notifications';
 
+import { listAllRepos } from './services/repoRouter';
+import { checkConfig } from './utils/configCheck';
+
 const app = new Hono<AppEnvironment>();
 
 // Health check (no middleware applied to avoid being blocked)
-app.get('/healthz', (c) => {
-  const envReady = !!(c.env.GITHUB_TOKEN && c.env.GITHUB_USER && c.env.GITHUB_REPO);
+app.get('/healthz', async (c) => {
+  const cfg = checkConfig(c.env);
+  
+  let githubRate: Record<string, any> = {};
+  if (c.env.REPO_REGISTRY) {
+    try {
+      const repos = await listAllRepos(c.env);
+      const rates = await Promise.all(repos.map(async (repo) => {
+        const raw = await c.env.REPO_REGISTRY.get(`github_rate::${repo.id}`);
+        return { repo: repo.id, ...(raw ? JSON.parse(raw) : { remaining: null }) };
+      }));
+      githubRate = rates;
+    } catch (e) {
+      console.error('Failed to fetch github rate for healthz:', e);
+    }
+  }
+
   return c.json({ 
-    ok: true, 
+    ok: true,
+    status: cfg.ok ? 'ok' : 'config_error',
     version: '1.0.0',
-    env_configured: envReady,
+    config: cfg.ok ? 'valid' : cfg.issues,
+    githubRate,
     features: {
       signature: c.env.ENABLE_SIGNATURE === 'true',
       referer_protection: !!c.env.ALLOWED_REFERERS
@@ -32,20 +52,23 @@ app.use('/*', signatureGuard);
 
 // Global Error Handler
 app.onError((err, c) => {
-  console.error('Global error:', err);
-  logger.captureError(c, err, { path: c.req.path, method: c.req.method });
+  const errorId = crypto.randomUUID();
+  const isDev = c.env.ENVIRONMENT !== 'production';
+
+  console.error(`[${errorId}]`, err.stack ?? err);
+  logger.captureError(c, err, { path: c.req.path, method: c.req.method, errorId });
 
   // Telegram Alert for 5xx
   c.executionCtx.waitUntil(alertThrottled('global_500', 
-    `🔥 <b>Critical System Error (500)</b>\nPath: <code>${c.req.path}</code>\nMethod: <b>${c.req.method}</b>\nError: <code>${err.message}</code>`,
+    `🔥 <b>Critical System Error (500)</b>\nPath: <code>${c.req.path}</code>\nMethod: <b>${c.req.method}</b>\nError ID: <code>${errorId}</code>\nError: <code>${err.message}</code>`,
     c.env, 1
   ));
 
-  return c.json({
-    error: 'Unhandled Exception',
-    message: err.message,
-    stack: err.stack, // Helpful for debugging
-  }, 500);
+  const body = isDev
+    ? { error: 'Unhandled Exception', message: err.message, stack: err.stack, errorId }
+    : { error: 'Internal Server Error', errorId };
+
+  return c.json(body, 500);
 });
 
 // Mount Admin UI and APIs

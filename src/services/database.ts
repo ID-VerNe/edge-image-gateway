@@ -135,20 +135,41 @@ export const dbService = {
   /**
    * Upsert an auth token.
    */
-  upsertToken: async (db: D1Database, token: string, name: string, createdAt: string) => {
+  upsertToken: async (db: D1Database, token: string, name: string, createdAt: string, permissions: string[] = ['read', 'write', 'delete'], pathPrefix?: string, expiresAt?: string) => {
     return await db.prepare(`
-      INSERT INTO auth_tokens (token, name, created_at)
-      VALUES (?, ?, ?)
+      INSERT INTO auth_tokens (token, name, permissions, path_prefix, created_at, expires_at)
+      VALUES (?, ?, ?, ?, ?, ?)
       ON CONFLICT(token) DO UPDATE SET
-        name = excluded.name
-    `).bind(token, name, createdAt).run();
+        name = excluded.name,
+        permissions = excluded.permissions,
+        path_prefix = excluded.path_prefix,
+        expires_at = excluded.expires_at
+    `).bind(token, name, JSON.stringify(permissions), pathPrefix || null, createdAt, expiresAt || null).run();
   },
 
   /**
    * Get an auth token.
    */
   getToken: async (db: D1Database, token: string) => {
-    return await db.prepare(`SELECT * FROM auth_tokens WHERE token = ?`).bind(token).first();
+    const res: any = await db.prepare(`SELECT * FROM auth_tokens WHERE token = ?`).bind(token).first();
+    if (!res) return null;
+    return {
+      token: res.token,
+      name: res.name,
+      permissions: res.permissions ? JSON.parse(res.permissions) : ['read', 'write', 'delete'],
+      pathPrefix: res.path_prefix,
+      createdAt: res.created_at,
+      expiresAt: res.expires_at,
+      lastUsedAt: res.last_used_at
+    };
+  },
+
+  /**
+   * Update token last used timestamp.
+   */
+  updateTokenLastUsed: async (db: D1Database, token: string) => {
+    return await db.prepare(`UPDATE auth_tokens SET last_used_at = ? WHERE token = ?`)
+      .bind(new Date().toISOString(), token).run();
   },
 
   /**

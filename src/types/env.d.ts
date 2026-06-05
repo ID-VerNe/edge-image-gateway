@@ -14,6 +14,8 @@ export interface Bindings {
   GITHUB_BRANCH: string;
   GITHUB_TOKEN: string;
 
+  ENVIRONMENT: string;
+
   ALLOWED_REFERERS: string;
   CACHE_TTL_SECONDS: string;
   ENABLE_SIGNATURE: string;
@@ -37,4 +39,7 @@ export interface Bindings {
 
 export type AppEnvironment = {
   Bindings: Bindings;
+  Variables: {
+    tokenInfo?: any;
+  };
 };

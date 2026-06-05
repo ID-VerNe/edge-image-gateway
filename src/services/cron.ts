@@ -1,6 +1,7 @@
 import { Bindings } from '../types/env';
 import { listAllRepos } from './repoRouter';
 import { alertThrottled } from '../utils/notifications';
+import { RepoMigrationJob, migrateRepo } from './repoMigration';
 
 export const syncCapacity = async (env: Bindings, ctx?: any) => {
   if (!env.REPO_REGISTRY) throw new Error('KV not configured');
@@ -46,6 +47,28 @@ export const syncCapacity = async (env: Bindings, ctx?: any) => {
     } else {
       results.push({ id: repo.id, error: 'Failed to fetch from GitHub' });
     }
+  }
+
+  // Auto-resume paused migration jobs
+  try {
+    const { keys } = await env.REPO_REGISTRY.list({ prefix: 'repo_migration::' });
+    for (const key of keys) {
+      const raw = await env.REPO_REGISTRY.get(key.name);
+      if (raw) {
+        const job = JSON.parse(raw) as RepoMigrationJob;
+        if (job.status === 'paused') {
+          job.status = 'running';
+          await env.REPO_REGISTRY.put(key.name, JSON.stringify(job));
+          if (ctx && ctx.waitUntil) {
+            ctx.waitUntil(migrateRepo(job, env));
+          } else {
+            migrateRepo(job, env).catch(console.error);
+          }
+        }
+      }
+    }
+  } catch (err) {
+    console.error('Failed to auto-resume migrations', err);
   }
 
   return results;

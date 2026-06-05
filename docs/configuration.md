@@ -26,6 +26,7 @@ Edge Image Gateway 的配置分为三个层次：
 
 | 变量 | 类型 | 默认值 | 说明 |
 |------|------|--------|------|
+| `ENVIRONMENT` | 明文 | `development` | 运行环境（`production` 或 `development`）。生产环境下隐藏错误堆栈。 |
 | `ALLOWED_REFERERS` | 明文 | `*`（允许所有） | 防盗链白名单，逗号分隔。示例：`https://example.com,https://blog.example.com` |
 | `CACHE_TTL_SECONDS` | 明文 | `604800` | 成功响应的 CDN 缓存时间（秒），默认 7 天 |
 | `ENABLE_SIGNATURE` | 明文 | `false` | 是否启用上传签名认证。设为 `true` 后，所有写操作需带签名 |

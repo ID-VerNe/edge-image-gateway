@@ -19,12 +19,20 @@ export const TOKEN_ACTIONS = `
     const name = document.getElementById('tokenName').value;
     if(!name) return alert('Please enter a token name');
 
+    const scopes = [];
+    if(document.getElementById('scopeRead').checked) scopes.push('read');
+    if(document.getElementById('scopeWrite').checked) scopes.push('write');
+    if(document.getElementById('scopeDelete').checked) scopes.push('delete');
+
+    const pathPrefix = document.getElementById('tokenPathPrefix').value.trim();
+    const expiresInDays = document.getElementById('tokenExpires').value;
+
     showLoader('Generating token...');
     try {
       const res = await fetch('/admin/api/stats/tokens', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name })
+        body: JSON.stringify({ name, scopes, pathPrefix, expiresInDays })
       });
       const data = await res.json();
       if(!res.ok) throw new Error(data.error || 'Failed to generate token');
@@ -68,12 +76,25 @@ export const TOKEN_ACTIONS = `
       return;
     }
 
-    let html = '<div class="file-row header"><div>Name</div><div>Created At</div><div>Prefix</div><div>Action</div></div>';
+    let html = '<div class="file-row header" style="grid-template-columns: 1.5fr 1.5fr 1fr 80px;"><div>Token Detail</div><div>Status</div><div>ID Prefix</div><div>Action</div></div>';
     tokens.forEach(t => {
+      const scopesBadge = (t.permissions || ['read', 'write', 'delete']).map(s => \`<span style="background:#e1f0fa;color:#0969da;padding:2px 4px;border-radius:4px;font-size:0.7rem;margin-right:2px;">\${s}</span>\`).join('');
+      const prefixText = t.pathPrefix ? \`<div style="color:#57606a;font-size:0.75rem;margin-top:2px;">Limit: <code>\${t.pathPrefix}</code></div>\` : '';
+      const expiresText = t.expiresAt ? \`<div style="font-size:0.75rem;color:\${new Date(t.expiresAt).getTime() < Date.now() ? 'red' : '#57606a'}">Exp: \${new Date(t.expiresAt).toLocaleString()}</div>\` : '';
+      const lastUsedText = t.lastUsedAt ? \`<div style="font-size:0.75rem;color:#57606a">Used: \${new Date(t.lastUsedAt).toLocaleString()}</div>\` : '';
+
       html += \`
-        <div class="file-row" style="grid-template-columns: 1fr 1fr 1fr 100px;">
-          <div style="font-weight:600;">\${t.name}</div>
-          <div class="file-meta">\${new Date(t.createdAt).toLocaleString()}</div>
+        <div class="file-row" style="grid-template-columns: 1.5fr 1.5fr 1fr 80px;">
+          <div>
+            <div style="font-weight:600; margin-bottom:0.25rem;">\${t.name}</div>
+            <div>\${scopesBadge}</div>
+            \${prefixText}
+          </div>
+          <div>
+            <div class="file-meta">Created: \${new Date(t.createdAt).toLocaleString()}</div>
+            \${expiresText}
+            \${lastUsedText}
+          </div>
           <div style="font-family:monospace; color:#57606a;">\${t.id.substring(0, 8)}...</div>
           <div>
             <button class="btn btn-mini btn-danger" onclick="deleteToken('\${t.id}')">Revoke</button>

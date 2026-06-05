@@ -204,9 +204,28 @@ export const PARTIALS = {
     </div>
 
     <div class="modal" id="addTokenModal">
-      <div class="modal-content">
+      <div class="modal-content" style="max-width:500px;">
         <h3 style="margin-top:0">Generate API Token</h3>
         <input type="text" id="tokenName" placeholder="Token name (e.g. PicGo Laptop)" style="width:100%; padding:0.5rem; margin-bottom:1rem; border:1px solid var(--kami-border); border-radius:6px;">
+
+        <label style="display:block; font-weight:600; margin-bottom:0.5rem;">Permissions (Scopes)</label>
+        <div style="margin-bottom: 1rem; display: flex; gap: 1rem;">
+          <label><input type="checkbox" id="scopeRead" value="read" checked> Read</label>
+          <label><input type="checkbox" id="scopeWrite" value="write" checked> Write</label>
+          <label><input type="checkbox" id="scopeDelete" value="delete"> Delete</label>
+        </div>
+
+        <label style="display:block; font-weight:600; margin-bottom:0.5rem;">Path Prefix (Optional)</label>
+        <input type="text" id="tokenPathPrefix" placeholder="e.g. /photos/ (leave empty for all paths)" style="width:100%; padding:0.5rem; margin-bottom:1rem; border:1px solid var(--kami-border); border-radius:6px;">
+
+        <label style="display:block; font-weight:600; margin-bottom:0.5rem;">Expires In (Days)</label>
+        <select id="tokenExpires" style="width:100%; padding:0.5rem; margin-bottom:1rem; border:1px solid var(--kami-border); border-radius:6px;">
+          <option value="">Never expire</option>
+          <option value="7">7 Days</option>
+          <option value="30">30 Days</option>
+          <option value="365">1 Year</option>
+        </select>
+
         <div id="tokenDisplay" style="display:none; margin-bottom:1rem; padding:1rem; background:#fffbdd; border:1px solid #d0d7de; border-radius:6px; word-break:break-all; font-family:monospace; font-size:0.875rem;">
           <div style="font-weight:600; margin-bottom:0.5rem;">Copy this token now. You won't see it again!</div>
           <div id="tokenValue" style="color:var(--kami-blue); font-weight:600;"></div>

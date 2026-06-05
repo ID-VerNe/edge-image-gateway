@@ -30,6 +30,7 @@ CREATE TABLE IF NOT EXISTS auth_tokens (
     token TEXT PRIMARY KEY,
     name TEXT,
     permissions TEXT, -- JSON array of strings
+    path_prefix TEXT,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     expires_at DATETIME,
     last_used_at DATETIME

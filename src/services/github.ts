@@ -39,6 +39,23 @@ export class GitHubService {
 
     // Monitor Rate Limit
     const remaining = res.headers.get('X-RateLimit-Remaining');
+    const limit = res.headers.get('X-RateLimit-Limit');
+    const reset = res.headers.get('X-RateLimit-Reset');
+    
+    if (remaining && limit && reset && env?.REPO_REGISTRY && repo?.meta?.id) {
+      const rateData = JSON.stringify({
+        remaining: parseInt(remaining, 10),
+        limit: parseInt(limit, 10),
+        reset: parseInt(reset, 10),
+        at: Date.now()
+      });
+      if (ctx && ctx.waitUntil) {
+        ctx.waitUntil(env.REPO_REGISTRY.put(`github_rate::${repo.meta.id}`, rateData));
+      } else {
+        env.REPO_REGISTRY.put(`github_rate::${repo.meta.id}`, rateData).catch(() => {});
+      }
+    }
+
     if (remaining && parseInt(remaining, 10) < 1000 && env) {
       alertThrottled('gh_rate_limit', 
         `🛑 <b>GitHub API Rate Limit Warning</b>\nRemaining: <b>${remaining}</b> / ${res.headers.get('X-RateLimit-Limit')}\nReset: ${new Date(parseInt(res.headers.get('X-RateLimit-Reset') || '0', 10) * 1000).toLocaleString()}`,

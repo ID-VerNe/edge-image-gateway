@@ -253,4 +253,78 @@ repoApi.delete('/:id', async (c) => {
   return c.json({ success: true, repos: updatedRepos });
 });
 
+import { RepoMigrationJob, migrateRepo, saveJob } from '../../../services/repoMigration';
+
+repoApi.post('/:id/migrate', async (c) => {
+  const sourceRepo = c.req.param('id');
+  const body = await c.req.json() as any;
+  const { targetRepo } = body;
+
+  if (!targetRepo) return c.json({ error: 'targetRepo is required' }, 400);
+
+  const jobId = `mig_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+  const job: RepoMigrationJob = {
+    jobId,
+    sourceRepo,
+    targetRepo,
+    status: 'running',
+    cursor: null,
+    total: 0,
+    migrated: 0,
+    failed: 0,
+    errors: [],
+    startedAt: Date.now(),
+    updatedAt: Date.now()
+  };
+
+  await saveJob(job, c.env);
+
+  // Set source repo to draining
+  const sRepo = await getRepoById(sourceRepo, c.env);
+  if (sRepo) {
+    sRepo.meta.status = 'draining';
+    if (c.env.DB) {
+       await dbService.upsertRepo(c.env.DB, sRepo.meta);
+    }
+    if (c.env.REPO_REGISTRY) {
+       await c.env.REPO_REGISTRY.put(`repo::${sourceRepo}`, JSON.stringify(sRepo.meta));
+    }
+  }
+
+  // Start migration async
+  c.executionCtx.waitUntil(migrateRepo(job, c.env));
+
+  return c.json({ success: true, jobId });
+});
+
+repoApi.get('/migrations/:jobId', async (c) => {
+  const jobId = c.req.param('jobId');
+  if (!c.env.REPO_REGISTRY) return c.json({ error: 'KV not configured' }, 400);
+  
+  const raw = await c.env.REPO_REGISTRY.get(`repo_migration::${jobId}`);
+  if (!raw) return c.json({ error: 'Migration job not found' }, 404);
+  
+  return c.json(JSON.parse(raw));
+});
+
+repoApi.post('/migrations/:jobId/resume', async (c) => {
+  const jobId = c.req.param('jobId');
+  if (!c.env.REPO_REGISTRY) return c.json({ error: 'KV not configured' }, 400);
+  
+  const raw = await c.env.REPO_REGISTRY.get(`repo_migration::${jobId}`);
+  if (!raw) return c.json({ error: 'Migration job not found' }, 404);
+  
+  const job: RepoMigrationJob = JSON.parse(raw);
+  if (job.status !== 'paused' && job.status !== 'failed') {
+    return c.json({ error: `Cannot resume job in status ${job.status}` }, 400);
+  }
+
+  job.status = 'running';
+  await saveJob(job, c.env);
+
+  c.executionCtx.waitUntil(migrateRepo(job, c.env));
+  
+  return c.json({ success: true, status: 'running' });
+});
+
 export default repoApi;
