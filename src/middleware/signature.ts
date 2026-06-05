@@ -12,7 +12,12 @@ import { logger } from '../utils/logger';
  */
 export const signatureGuard = async (c: Context<AppEnvironment>, next: Next) => {
   const reqUrl = new URL(c.req.url);
-  const path = c.req.path;
+  // Normalize path: decode and ensure leading slash
+  let path = reqUrl.pathname;
+  try {
+    path = decodeURIComponent(path);
+  } catch (e) {}
+  if (!path.startsWith('/')) path = '/' + path;
 
   // 1. Skip for health check, root, or admin paths
   if (path === '/healthz' || path === '/' || path.startsWith('/admin')) {
@@ -25,7 +30,7 @@ export const signatureGuard = async (c: Context<AppEnvironment>, next: Next) => 
   const isInternal = reqUrl.searchParams.get('__internal_loopback') === 'true';
   const internalSig = reqUrl.searchParams.get('__sig');
   if (isInternal && internalSig) {
-    const expectedInternalSig = await generateHMAC(path.replace(/^\/+/, ''), c.env.SIGN_SECRET);
+    const expectedInternalSig = await generateHMAC(path, c.env.SIGN_SECRET);
     if (internalSig === expectedInternalSig) {
       return await next();
     }

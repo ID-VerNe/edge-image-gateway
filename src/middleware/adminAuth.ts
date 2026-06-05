@@ -1,6 +1,7 @@
 import { MiddlewareHandler } from 'hono';
 import { AppEnvironment } from '../types/env';
 import { getCookie, setCookie } from 'hono/cookie';
+import { dbService } from '../services/database';
 
 export const adminAuthGuard: MiddlewareHandler<AppEnvironment> = async (c, next) => {
   const adminEmailsStr = c.env.ADMIN_EMAILS || '';
@@ -8,12 +9,23 @@ export const adminAuthGuard: MiddlewareHandler<AppEnvironment> = async (c, next)
 
   // 1. Check API Token (Authorization: Bearer <token>)
   const authHeader = c.req.header('Authorization');
-  if (authHeader?.startsWith('Bearer ') && c.env.REPO_REGISTRY) {
+  if (authHeader?.startsWith('Bearer ')) {
     const token = authHeader.substring(7);
-    const tokenInfo = await c.env.REPO_REGISTRY.get(`auth::token::\${token}`, 'json');
-    if (tokenInfo) {
-      // Valid API Token
-      return await next();
+    
+    // Phase 3: D1 primary
+    if (c.env.DB) {
+      try {
+        const tokenInfo = await dbService.getToken(c.env.DB, token);
+        if (tokenInfo) return await next();
+      } catch (e) {
+        console.error('D1 token check failed:', e);
+      }
+    }
+
+    // Fallback to KV
+    if (c.env.REPO_REGISTRY) {
+      const tokenInfo = await c.env.REPO_REGISTRY.get(`auth::token::${token}`, 'json');
+      if (tokenInfo) return await next();
     }
   }
 

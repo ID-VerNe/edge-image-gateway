@@ -4,6 +4,7 @@ import { listAllRepos, RepoMeta, getCurrentWriteId, getTokenFromEnv, getRepoById
 import { Buffer } from 'node:buffer';
 import { githubService } from '../../../services/github';
 import { logger } from '../../../utils/logger';
+import { dbService } from '../../../services/database';
 
 const repoApi = new Hono<AppEnvironment>();
 
@@ -14,18 +15,23 @@ repoApi.get('/', async (c) => {
 });
 
 repoApi.post('/route/write', async (c) => {
-  if (!c.env.REPO_REGISTRY) return c.json({ error: 'KV not configured' }, 400);
   const { repo } = await c.req.json() as any;
   if (!repo) return c.json({ error: 'Repo ID is required' }, 400);
 
-  // If repo is 'fallback', we just delete the override
-  if (repo === 'fallback') {
-    await c.env.REPO_REGISTRY.delete('route::current_write');
-  } else {
-    // Verify repo exists
-    const exists = await c.env.REPO_REGISTRY.get(`repo::${repo}`);
-    if (!exists) return c.json({ error: 'Repository not found' }, 404);
-    await c.env.REPO_REGISTRY.put('route::current_write', repo);
+  // Phase 3: D1 primary
+  if (c.env.DB) {
+    await dbService.setConfig(c.env.DB, 'route::current_write', repo);
+  }
+
+  // Dual-write to KV (Background)
+  if (c.env.REPO_REGISTRY) {
+    c.executionCtx.waitUntil((async () => {
+      if (repo === 'fallback') {
+        await c.env.REPO_REGISTRY!.delete('route::current_write');
+      } else {
+        await c.env.REPO_REGISTRY!.put('route::current_write', repo);
+      }
+    })());
   }
 
   invalidateRepoCache();
@@ -35,7 +41,6 @@ repoApi.post('/route/write', async (c) => {
 });
 
 repoApi.post('/', async (c) => {
-  if (!c.env.REPO_REGISTRY) return c.json({ error: 'KV not configured' }, 400);
   const body = await c.req.json() as any;
   const { id, owner, name, branch, capacityLimitBytes, tokenSecretName } = body;
   
@@ -75,12 +80,12 @@ repoApi.post('/', async (c) => {
     );
   }
 
-  // 4. Register in KV
-  const existingId = await c.env.REPO_REGISTRY.get(`repo::${id}`);
-  if (existingId) return c.json({ error: 'Repository ID already exists' }, 400);
+  // 4. Register in D1 (Phase 3 primary)
+  const allRepos = await listAllRepos(c.env, true);
+  const existsInRegistry = allRepos.some(r => r.id === id);
+  if (existsInRegistry) return c.json({ error: 'Repository ID already exists' }, 400);
 
   // Check for duplicate physical repository (owner/name)
-  const allRepos = await listAllRepos(c.env, true);
   const isDuplicateRepo = allRepos.some(r => 
     r.owner.toLowerCase() === owner.toLowerCase() && 
     r.name.toLowerCase() === name.toLowerCase() &&
@@ -101,41 +106,35 @@ repoApi.post('/', async (c) => {
     tokenSecretName: tokenSecretName || 'GITHUB_TOKEN'
   };
 
-  await c.env.REPO_REGISTRY.put(`repo::${id}`, JSON.stringify(newRepo));
+  if (c.env.DB) {
+    await dbService.upsertRepo(c.env.DB, newRepo);
+  }
+
+  // Dual-write to KV (Background)
+  if (c.env.REPO_REGISTRY) {
+    c.executionCtx.waitUntil(c.env.REPO_REGISTRY.put(`repo::${id}`, JSON.stringify(newRepo)));
+  }
+
   c.executionCtx.waitUntil(logger.recordAudit(c, 'CREATE_REPO', { id, owner, name }));
   
   invalidateRepoCache();
-  const repos = await listAllRepos(c.env, true);
-  return c.json({ success: true, repo: newRepo, repos });
+  const updatedRepos = await listAllRepos(c.env, true);
+  return c.json({ success: true, repo: newRepo, repos: updatedRepos });
 });
 
 repoApi.put('/:id', async (c) => {
-  if (!c.env.REPO_REGISTRY) return c.json({ error: 'KV not configured' }, 400);
   const oldId = c.req.param('id');
   const body = await c.req.json() as any;
   const { newId, owner, name, branch, capacityLimitBytes, tokenSecretName, status } = body;
 
-  const existingStr = await c.env.REPO_REGISTRY.get(`repo::${oldId}`);
-  if (!existingStr) return c.json({ error: 'Repo not found' }, 404);
-  const repo = JSON.parse(existingStr) as RepoMeta;
+  const allRepos = await listAllRepos(c.env, true);
+  const repo = allRepos.find(r => r.id === oldId);
+  if (!repo) return c.json({ error: 'Repo not found' }, 404);
 
   // If ID changed, check if new ID exists
   if (newId && newId !== oldId) {
-    const conflict = await c.env.REPO_REGISTRY.get(`repo::${newId}`);
+    const conflict = allRepos.find(r => r.id === newId);
     if (conflict) return c.json({ error: 'New Repository ID already exists' }, 400);
-  }
-
-  // Check physical repo uniqueness if owner/name changed
-  if ((owner && owner !== repo.owner) || (name && name !== repo.name)) {
-    const allRepos = await listAllRepos(c.env, true);
-    const isDuplicateRepo = allRepos.some(r => 
-      r.id !== oldId &&
-      r.owner.toLowerCase() === (owner || repo.owner).toLowerCase() && 
-      r.name.toLowerCase() === (name || repo.name).toLowerCase()
-    );
-    if (isDuplicateRepo) {
-      return c.json({ error: 'This physical repository is already registered with another ID' }, 400);
-    }
   }
 
   const updatedRepo: RepoMeta = {
@@ -149,93 +148,109 @@ repoApi.put('/:id', async (c) => {
     status: status || repo.status
   };
 
-  if (newId && newId !== oldId) {
-    await c.env.REPO_REGISTRY.delete(`repo::${oldId}`);
-    // If it was the current write repo, update the route
-    const currentWrite = await c.env.REPO_REGISTRY.get('route::current_write');
-    if (currentWrite === oldId) {
-      await c.env.REPO_REGISTRY.put('route::current_write', newId);
+  // Phase 3: D1 primary
+  if (c.env.DB) {
+    if (newId && newId !== oldId) {
+      await c.env.DB.prepare('DELETE FROM repos WHERE id = ?').bind(oldId).run();
+      const currentWrite = await getCurrentWriteId(c.env);
+      if (currentWrite === oldId) {
+        await dbService.setConfig(c.env.DB, 'route::current_write', newId);
+      }
     }
+    await dbService.upsertRepo(c.env.DB, updatedRepo);
   }
-  
-  await c.env.REPO_REGISTRY.put(`repo::${updatedRepo.id}`, JSON.stringify(updatedRepo));
+
+  // Dual-write to KV (Background)
+  if (c.env.REPO_REGISTRY) {
+    c.executionCtx.waitUntil((async () => {
+      if (newId && newId !== oldId) {
+        await c.env.REPO_REGISTRY!.delete(`repo::${oldId}`);
+        const currentWrite = await c.env.REPO_REGISTRY!.get('route::current_write');
+        if (currentWrite === oldId) {
+          await c.env.REPO_REGISTRY!.put('route::current_write', newId);
+        }
+      }
+      await c.env.REPO_REGISTRY!.put(`repo::${updatedRepo.id}`, JSON.stringify(updatedRepo));
+    })());
+  }
+
   c.executionCtx.waitUntil(logger.recordAudit(c, 'UPDATE_REPO', { id: oldId, ...body }));
   
   invalidateRepoCache();
-  const repos = await listAllRepos(c.env, true);
-  return c.json({ success: true, repo: updatedRepo, repos });
+  const updatedRepos = await listAllRepos(c.env, true);
+  return c.json({ success: true, repo: updatedRepo, repos: updatedRepos });
 });
 
 repoApi.post('/:id/sync', async (c) => {
-  if (!c.env.REPO_REGISTRY) return c.json({ error: 'KV not configured' }, 400);
   const id = c.req.param('id');
-  console.log(`Syncing repo: ${id}`);
-  
   const repo = await getRepoById(id, c.env);
-  if (!repo) {
-    console.error(`Repo not found: ${id}`);
-    return c.json({ error: 'Repository not found in registry' }, 404);
-  }
+  if (!repo) return c.json({ error: 'Repository not found' }, 404);
 
   try {
-    console.log(`Fetching tree from GitHub for: ${repo.meta.owner}/${repo.meta.name}`);
     const treeData = await githubService.getTree(repo, true);
-    
-    if (!treeData) {
-       console.error('GitHub API returned no data');
-       return c.json({ error: 'GitHub API returned no data' }, 500);
-    }
-    
-    if (!treeData.tree) {
-      console.error('GitHub API response missing .tree property', treeData);
-      return c.json({ error: 'GitHub API response invalid', details: treeData }, 500);
-    }
+    if (!treeData || !treeData.tree) return c.json({ error: 'GitHub API returned invalid data' }, 500);
 
     const blobs = treeData.tree.filter((item: any) => item.type === 'blob');
     let totalSize = 0;
-    
     for (const item of blobs) {
       totalSize += item.size || 0;
     }
-
-    console.log(`Sync complete: ${blobs.length} files, ${totalSize} bytes`);
 
     repo.meta.fileCount = blobs.length;
     repo.meta.sizeBytes = totalSize;
     repo.meta.status = 'active'; 
 
-    await c.env.REPO_REGISTRY.put(`repo::${repo.meta.id}`, JSON.stringify(repo.meta));
+    // Phase 3: D1 primary
+    if (c.env.DB) {
+      await dbService.upsertRepo(c.env.DB, repo.meta);
+    }
+
+    // Dual-write to KV (Background)
+    if (c.env.REPO_REGISTRY) {
+      c.executionCtx.waitUntil(c.env.REPO_REGISTRY.put(`repo::${id}`, JSON.stringify(repo.meta)));
+    }
+
     c.executionCtx.waitUntil(logger.recordAudit(c, 'SYNC_REPO', { id, fileCount: blobs.length, sizeBytes: totalSize }));
 
     invalidateRepoCache();
     const repos = await listAllRepos(c.env, true);
     return c.json({ success: true, fileCount: blobs.length, sizeBytes: totalSize, repos });
   } catch (err: any) {
-    console.error('Sync error catch block:', err);
-    return c.json({ error: 'Sync failed exception', message: err.message, stack: err.stack }, 500);
+    return c.json({ error: 'Sync failed', message: err.message }, 500);
   }
 });
 
 repoApi.delete('/:id', async (c) => {
-  if (!c.env.REPO_REGISTRY) return c.json({ error: 'KV not configured' }, 400);
   const id = c.req.param('id');
-
-  const exists = await c.env.REPO_REGISTRY.get(`repo::${id}`);
+  const allRepos = await listAllRepos(c.env, true);
+  const exists = allRepos.some(r => r.id === id);
   if (!exists) return c.json({ error: 'Repo not found' }, 404);
 
-  // Simply delete the specific mapping
-  await c.env.REPO_REGISTRY.delete(`repo::${id}`);
-  c.executionCtx.waitUntil(logger.recordAudit(c, 'DELETE_REPO', { id }));
-
-  // Clean up write target if it was the one deleted
-  const currentWrite = await c.env.REPO_REGISTRY.get('route::current_write');
-  if (currentWrite === id) {
-     await c.env.REPO_REGISTRY.delete('route::current_write');
+  // Phase 3: D1 primary
+  if (c.env.DB) {
+    await c.env.DB.prepare('DELETE FROM repos WHERE id = ?').bind(id).run();
+    const currentWrite = await getCurrentWriteId(c.env);
+    if (currentWrite === id) {
+      await dbService.setConfig(c.env.DB, 'route::current_write', 'fallback');
+    }
   }
 
+  // Dual-write to KV (Background)
+  if (c.env.REPO_REGISTRY) {
+    c.executionCtx.waitUntil((async () => {
+      await c.env.REPO_REGISTRY!.delete(`repo::${id}`);
+      const currentWrite = await c.env.REPO_REGISTRY!.get('route::current_write');
+      if (currentWrite === id) {
+        await c.env.REPO_REGISTRY!.delete('route::current_write');
+      }
+    })());
+  }
+
+  c.executionCtx.waitUntil(logger.recordAudit(c, 'DELETE_REPO', { id }));
+
   invalidateRepoCache();
-  const repos = await listAllRepos(c.env, true);
-  return c.json({ success: true, repos });
+  const updatedRepos = await listAllRepos(c.env, true);
+  return c.json({ success: true, repos: updatedRepos });
 });
 
 export default repoApi;

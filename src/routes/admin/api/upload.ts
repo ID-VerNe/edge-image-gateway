@@ -1,11 +1,12 @@
 import { Hono } from 'hono';
 import { Buffer } from 'node:buffer';
 import { AppEnvironment } from '../../../types/env';
-import { resolveForWrite, resolveForRead } from '../../../services/repoRouter';
+import { resolveForWrite, resolveForRead, RepoMeta } from '../../../services/repoRouter';
 import { sha256 } from '../../../utils/hash';
 import { stripMetadata } from '../../../utils/imageProcessor';
 import { githubService } from '../../../services/github';
 import { logger } from '../../../utils/logger';
+import { dbService } from '../../../services/database';
 
 const uploadApi = new Hono<AppEnvironment>();
 
@@ -37,18 +38,36 @@ uploadApi.post('/', async (c) => {
 
     const hash = await sha256(arrayBuffer);
 
+    // Phase 3: D1 primary for deduplication
+    if (c.env.DB) {
+      try {
+        const existing: any = await c.env.DB.prepare(`SELECT path, repo_id as repoId FROM paths WHERE hash = ?`).bind(hash).first();
+        if (existing) {
+          // Verify physical existence on GitHub
+          const repoForOld = await resolveForRead(existing.path, c.env);
+          const exists = await githubService.fileExists(existing.path, repoForOld);
+          if (exists) {
+            return c.json({ ...existing, sha256: hash, deduplicated: true });
+          } else {
+            // D1 entry is stale, physical file is gone. Delete D1 entry and proceed.
+            await c.env.DB.prepare(`DELETE FROM paths WHERE hash = ?`).bind(hash).run();
+          }
+        }
+      } catch (e) {
+        console.error('D1 deduplication check failed:', e);
+      }
+    }
+
+    // Fallback to KV for deduplication (transition phase)
     if (c.env.REPO_REGISTRY) {
       const existing = await c.env.REPO_REGISTRY.get(`hash::${hash}`, 'json');
       if (existing) {
         const meta = existing as any;
-        // Verify physical existence on GitHub to prevent stale deduplication
         const repoForOld = await resolveForRead(meta.path, c.env);
         const exists = await githubService.fileExists(meta.path, repoForOld);
-        
         if (exists) {
           return c.json({ ...meta, deduplicated: true });
         } else {
-          // KV entry is stale, physical file is gone. Remove KV entry and proceed with upload.
           await c.env.REPO_REGISTRY.delete(`hash::${hash}`);
         }
       }
@@ -68,7 +87,7 @@ uploadApi.post('/', async (c) => {
     const repo = await resolveForWrite(c.env, file.size);
     const base64Content = Buffer.from(arrayBuffer).toString('base64');
     
-    const githubUrl = `https://api.github.com/repos/${repo.meta.owner}/${repo.meta.name}/contents/${path}`;
+    const githubUrl = `https://api.github.com/repos/${repo.meta.owner}/${repo.meta.name}/contents/${encodeURIComponent(path)}`;
     const githubRes = await fetch(githubUrl, {
       method: 'PUT',
       headers: {
@@ -98,12 +117,23 @@ uploadApi.post('/', async (c) => {
       uploadedAt: new Date().toISOString()
     };
 
+    // Phase 3: D1 primary for recording addition
+    if (c.env.DB) {
+      await dbService.recordFileAddition(c.env.DB, path, repo.meta.id, file.size, hash);
+    }
+
+    // Dual-write to KV (Background)
     if (c.env.REPO_REGISTRY) {
-      await c.env.REPO_REGISTRY.put(`hash::${hash}`, JSON.stringify(result));
-      await c.env.REPO_REGISTRY.put(`path::${path}`, JSON.stringify({ repoId: repo.meta.id, hash }));
-      repo.meta.sizeBytes += file.size;
-      repo.meta.fileCount += 1;
-      await c.env.REPO_REGISTRY.put(`repo::${repo.meta.id}`, JSON.stringify(repo.meta));
+      c.executionCtx.waitUntil((async () => {
+        await c.env.REPO_REGISTRY!.put(`hash::${hash}`, JSON.stringify(result));
+        await c.env.REPO_REGISTRY!.put(`path::${path}`, JSON.stringify({ repoId: repo.meta.id, hash }));
+        const currentRepo = await c.env.REPO_REGISTRY!.get(`repo::${repo.meta.id}`, 'json') as RepoMeta | null;
+        if (currentRepo) {
+          currentRepo.sizeBytes += file.size;
+          currentRepo.fileCount += 1;
+          await c.env.REPO_REGISTRY!.put(`repo::${repo.meta.id}`, JSON.stringify(currentRepo));
+        }
+      })());
     }
 
     const origin = new URL(c.req.url).origin;

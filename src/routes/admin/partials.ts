@@ -14,7 +14,6 @@ export const PARTIALS = {
         </div>
       </div>
       <div class="sidebar-footer">
-        <div class="tree-item" id="nav-trash" onclick="switchView('trash')">🗑️ Recycle Bin</div>
         <div class="tree-item" id="nav-audit" onclick="switchView('audit')">📜 Audit Logs</div>
         <div class="tree-item" id="nav-tokens" onclick="switchView('tokens')">🔑 API Tokens</div>
         <div class="tree-item" id="nav-settings" onclick="switchView('repos')">⚙️ Settings</div>
@@ -51,27 +50,13 @@ export const PARTIALS = {
       </div>
     </main>
   `,
-  mainTrash: `
-    <main id="main-trash" style="display: none;">
-      <div class="toolbar">
-        <div class="breadcrumbs"><span class="breadcrumb-item current">Recycle Bin</span></div>
-        <div class="actions">
-          <button class="btn btn-danger" onclick="emptyTrash()">Empty Trash</button>
-          <button class="btn" onclick="loadTrash()">Refresh</button>
-        </div>
-      </div>
-      <div class="content-area">
-         <p style="font-size:0.875rem; color:#57606a; margin-bottom:1rem;">Deleted items are kept for 30 days before permanent removal.</p>
-         <div id="trash-container" class="file-list-card"></div>
-      </div>
-    </main>
-  `,
   mainRepos: `
     <main id="main-repos" style="display: none;">
       <div class="toolbar">
         <div class="breadcrumbs"><span class="breadcrumb-item current">System Settings & Registry</span></div>
         <div class="actions">
           <button class="btn btn-primary" onclick="showAddRepoModal()">Register New Repo</button>
+          <button class="btn" onclick="startBackfill()">Migrate to D1</button>
           <button class="btn" onclick="purgeCache()">Purge Edge Cache</button>
         </div>
       </div>
@@ -182,10 +167,21 @@ export const PARTIALS = {
           <hr style="border:0; border-top:1px solid #30363d; margin:1.5rem 0;">
           
           <div class="copy-group">
-            <label>Signed URL (24h)</label>
-            <div style="display:flex; gap:0.5rem;">
-              <input type="text" id="copy-signed" readonly style="flex:1;">
-              <button class="btn btn-mini" onclick="generateAndCopySigned()">Copy</button>
+            <label>Signed URL</label>
+            <div style="display:grid; gap:0.5rem;">
+              <div style="display:flex; gap:0.5rem;">
+                <select id="copy-signed-expiry" style="flex:1; padding:0.25rem; background:#0d1117; border:1px solid #30363d; border-radius:4px; color:#c9d1d9; font-size:0.75rem;">
+                  <option value="3600">1 Hour</option>
+                  <option value="86400" selected>24 Hours</option>
+                  <option value="604800">7 Days</option>
+                  <option value="2592000">30 Days</option>
+                </select>
+                <button class="btn btn-mini" onclick="generateSignedUrlForLightbox()">Generate</button>
+              </div>
+              <div style="display:flex; gap:0.5rem;">
+                <input type="text" id="copy-signed" readonly placeholder="Click Generate..." style="flex:1; font-size:0.75rem;">
+                <button class="btn btn-mini" id="btn-copy-signed" onclick="copySignedUrlFromLightbox()" disabled>Copy</button>
+              </div>
             </div>
           </div>
         </div>

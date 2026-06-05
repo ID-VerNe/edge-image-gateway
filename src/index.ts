@@ -5,7 +5,7 @@ import { rateLimitGuard } from './middleware/rateLimit';
 import { signatureGuard } from './middleware/signature';
 import { handleImageRequest } from './routes/image';
 import adminApp from './routes/admin';
-import { syncCapacity, cleanupTrash } from './services/cron';
+import { syncCapacity } from './services/cron';
 import { logger } from './utils/logger';
 import { alertThrottled } from './utils/notifications';
 
@@ -37,7 +37,7 @@ app.onError((err, c) => {
 
   // Telegram Alert for 5xx
   c.executionCtx.waitUntil(alertThrottled('global_500', 
-    `🔥 <b>Critical System Error (500)</b>\nPath: <code>\${c.req.path}</code>\nMethod: <b>\${c.req.method}</b>\nError: <code>\${err.message}</code>`,
+    `🔥 <b>Critical System Error (500)</b>\nPath: <code>${c.req.path}</code>\nMethod: <b>${c.req.method}</b>\nError: <code>${err.message}</code>`,
     c.env, 1
   ));
 
@@ -63,13 +63,6 @@ export default {
         logger.info('cron_sync_capacity', { results });
       } catch (err: any) {
         logger.error('cron_sync_capacity_error', { message: err.message });
-      }
-
-      try {
-        const trashResults = await cleanupTrash(env, ctx);
-        logger.info('cron_cleanup_trash', { trashResults });
-      } catch (err: any) {
-        logger.error('cron_cleanup_trash_error', { message: err.message });
       }
     })());
   }

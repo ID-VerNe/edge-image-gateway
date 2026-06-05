@@ -5,6 +5,7 @@ import { resolveForRead, resolveForWrite, RepoMeta } from '../../../../services/
 import { githubService } from '../../../../services/github';
 import { purgeFileCache } from '../../../../utils/cache';
 import { logger } from '../../../../utils/logger';
+import { dbService } from '../../../../services/database';
 
 const mutateApi = new Hono<AppEnvironment>();
 
@@ -29,8 +30,14 @@ mutateApi.post('/mkdir', async (c) => {
       return c.json({ error: 'GitHub mkdir failed', details: errText }, 500);
     }
 
+    if (c.env.DB) {
+      await dbService.recordFileAddition(c.env.DB, fullPath, repo.meta.id, 0); 
+      await dbService.upsertRepo(c.env.DB, repo.meta);
+    }
+
+    // Dual-write to KV (Background)
     if (c.env.REPO_REGISTRY) {
-      await c.env.REPO_REGISTRY.put(`path::${fullPath}`, repo.meta.id);
+      c.executionCtx.waitUntil(c.env.REPO_REGISTRY.put(`path::${fullPath}`, repo.meta.id));
     }
 
     c.executionCtx.waitUntil(logger.recordAudit(c, 'MKDIR', { path }));
@@ -85,12 +92,36 @@ mutateApi.delete('/*', async (c) => {
         }
       }
 
-      if (deletedCount > 0 && c.env.REPO_REGISTRY) {
-        repo.meta.fileCount = Math.max(0, repo.meta.fileCount - deletedCount);
-        repo.meta.sizeBytes = Math.max(0, repo.meta.sizeBytes - deletedBytes);
-        await c.env.REPO_REGISTRY.put(`repo::${repo.meta.id}`, JSON.stringify(repo.meta));
-        c.executionCtx.waitUntil(logger.recordAudit(c, 'DELETE_DIR', { path, deletedCount }));
+      // Phase 3: D1 primary for dir deletion
+      if (deletedCount > 0 && c.env.DB) {
+        // Batch delete paths and update repo stats
+        const batch = [
+          c.env.DB.prepare(`UPDATE repos SET used_bytes = MAX(0, used_bytes - ?), file_count = MAX(0, file_count - ?) WHERE id = ?`).bind(deletedBytes, deletedCount, repo.meta.id),
+          ...itemsToDelete.map((item: any) => c.env.DB.prepare(`DELETE FROM paths WHERE path = ?`).bind(item.path))
+        ];
+        await c.env.DB.batch(batch);
       }
+
+      // Dual-write to KV (Background)
+      if (deletedCount > 0 && c.env.REPO_REGISTRY) {
+        c.executionCtx.waitUntil((async () => {
+          repo.meta.fileCount = Math.max(0, repo.meta.fileCount - deletedCount);
+          repo.meta.sizeBytes = Math.max(0, repo.meta.sizeBytes - deletedBytes);
+          await c.env.REPO_REGISTRY!.put(`repo::${repo.meta.id}`, JSON.stringify(repo.meta));
+          for (const item of itemsToDelete) {
+            const recordStr = await c.env.REPO_REGISTRY!.get(`path::${item.path}`);
+            if (recordStr && recordStr.startsWith('{')) {
+              try {
+                const record = JSON.parse(recordStr);
+                if (record.hash) await c.env.REPO_REGISTRY!.delete(`hash::${record.hash}`);
+              } catch {}
+            }
+            await c.env.REPO_REGISTRY!.delete(`path::${item.path}`);
+          }
+        })());
+      }
+      
+      c.executionCtx.waitUntil(logger.recordAudit(c, 'DELETE_DIR', { path, deletedCount }));
       return c.json({ success: true, deletedCount });
     }
 
@@ -110,25 +141,35 @@ mutateApi.delete('/*', async (c) => {
       return c.json({ error: 'GitHub delete failed', details: errText }, 500);
     }
 
-    if (c.env.REPO_REGISTRY) {
-      repo.meta.sizeBytes = Math.max(0, repo.meta.sizeBytes - (fileData.size || 0));
-      repo.meta.fileCount = Math.max(0, repo.meta.fileCount - 1);
-      
-      const recordStr = await c.env.REPO_REGISTRY.get(`path::${path}`);
-      if (recordStr && recordStr.startsWith('{')) {
-        try {
-          const record = JSON.parse(recordStr);
-          if (record.hash) await c.env.REPO_REGISTRY.delete(`hash::${record.hash}`);
-        } catch {}
-      }
-      
-      await c.env.REPO_REGISTRY.put(`repo::${repo.meta.id}`, JSON.stringify(repo.meta));
-      await c.env.REPO_REGISTRY.delete(`path::${path}`);
-
-      // Granular Cache Purge
-      c.executionCtx.waitUntil(purgeFileCache(path, c.env, new URL(c.req.url).origin));
-      c.executionCtx.waitUntil(logger.recordAudit(c, 'DELETE_FILE', { path }));
+    // Phase 3: D1 primary for single deletion
+    if (c.env.DB) {
+      await dbService.recordFileDeletion(c.env.DB, path, repo.meta.id, fileData.size || 0);
     }
+
+    // Dual-write to KV (Background)
+    if (c.env.REPO_REGISTRY) {
+      c.executionCtx.waitUntil((async () => {
+        const recordStr = await c.env.REPO_REGISTRY!.get(`path::${path}`);
+        if (recordStr && recordStr.startsWith('{')) {
+          try {
+            const record = JSON.parse(recordStr);
+            if (record.hash) await c.env.REPO_REGISTRY!.delete(`hash::${record.hash}`);
+          } catch {}
+        }
+        await c.env.REPO_REGISTRY!.delete(`path::${path}`);
+        
+        const currentRepo = await c.env.REPO_REGISTRY!.get(`repo::${repo.meta.id}`, 'json') as RepoMeta | null;
+        if (currentRepo) {
+          currentRepo.sizeBytes = Math.max(0, currentRepo.sizeBytes - (fileData.size || 0));
+          currentRepo.fileCount = Math.max(0, currentRepo.fileCount - 1);
+          await c.env.REPO_REGISTRY!.put(`repo::${repo.meta.id}`, JSON.stringify(currentRepo));
+        }
+      })());
+    }
+
+    // Granular Cache Purge
+    c.executionCtx.waitUntil(purgeFileCache(path, c.env, new URL(c.req.url).origin));
+    c.executionCtx.waitUntil(logger.recordAudit(c, 'DELETE_FILE', { path }));
 
     return c.json({ success: true, path });
   } catch (err: any) {
@@ -156,12 +197,22 @@ const runMigration = async (taskId: string, c: any) => {
 
   const updateStatus = async (status: MigrationTask['status'], extra: Partial<MigrationTask> = {}) => {
     const taskStr = await kv.get(`migration::${taskId}`);
-    if (!taskStr) return;
+    if (!taskStr) throw new Error(`Migration task ${taskId} not found`);
     const task = JSON.parse(taskStr) as MigrationTask;
     task.status = status;
     task.lastUpdate = Date.now();
     Object.assign(task, extra);
     await kv.put(`migration::${taskId}`, JSON.stringify(task), { expirationTtl: 86400 });
+
+    // Phase 1: D1 Dual-write
+    if (c.env.DB) {
+      try {
+        await dbService.upsertTask(c.env.DB, task);
+      } catch (e: any) {
+        logger.error('d1_dual_write_task_status_failed', { id: taskId, error: e.message });
+      }
+    }
+
     return task;
   };
 
@@ -188,11 +239,11 @@ const runMigration = async (taskId: string, c: any) => {
       );
       if (!putRes.ok) throw new Error(`Copy failed: ${await putRes.text()}`);
 
-      task = await updateStatus('copied', { 
+      task = (await updateStatus('copied', { 
         fileSize, 
         sourceRepoId: sourceRepo.meta.id, 
         targetRepoId: targetRepo.meta.id 
-      });
+      }))!;
     }
 
     // 2. Verify (COPIED -> VERIFIED)
@@ -201,7 +252,7 @@ const runMigration = async (taskId: string, c: any) => {
       const targetData = await githubService.getFile(task.targetPath, targetRepo);
       if (!targetData || Array.isArray(targetData)) throw new Error('Target verification failed: File not found after copy');
       
-      task = await updateStatus('verified');
+      task = (await updateStatus('verified'))!;
     }
 
     // 3. Delete Source (VERIFIED -> SRC_DELETED)
@@ -217,7 +268,7 @@ const runMigration = async (taskId: string, c: any) => {
         );
         if (!delRes.ok && delRes.status !== 404) throw new Error(`Source deletion failed: ${await delRes.text()}`);
       }
-      task = await updateStatus('src_deleted');
+      task = (await updateStatus('src_deleted'))!;
     }
 
     // 4. Update KV & Stats (SRC_DELETED -> INDEXED)
@@ -232,7 +283,7 @@ const runMigration = async (taskId: string, c: any) => {
       // Update Stats
       const size = task.fileSize || 0;
       if (task.targetRepoId) {
-        const tMeta = await kv.get<RepoMeta>(`repo::${task.targetRepoId}`, 'json');
+        const tMeta = await kv.get(`repo::${task.targetRepoId}`, 'json') as RepoMeta | null;
         if (tMeta) {
           tMeta.sizeBytes += size;
           tMeta.fileCount += 1;
@@ -240,15 +291,32 @@ const runMigration = async (taskId: string, c: any) => {
         }
       }
       if (task.sourceRepoId && task.sourceRepoId !== task.targetRepoId) {
-        const sMeta = await kv.get<RepoMeta>(`repo::${task.sourceRepoId}`, 'json');
+        const sMeta = await kv.get(`repo::${task.sourceRepoId}`, 'json') as RepoMeta | null;
         if (sMeta) {
           sMeta.sizeBytes = Math.max(0, sMeta.sizeBytes - size);
           sMeta.fileCount = Math.max(0, sMeta.fileCount - 1);
           await kv.put(`repo::${task.sourceRepoId}`, JSON.stringify(sMeta));
         }
       }
+
+      // Phase 1: D1 Dual-write for migration completion
+      if (c.env.DB) {
+        try {
+          const batch = [
+            // Target Addition (Relative update)
+            c.env.DB.prepare(`UPDATE repos SET used_bytes = used_bytes + ?, file_count = file_count + 1 WHERE id = ?`).bind(size, task.targetRepoId),
+            c.env.DB.prepare(`INSERT INTO paths (path, repo_id, size_bytes) VALUES (?, ?, ?) ON CONFLICT(path) DO UPDATE SET repo_id = excluded.repo_id, size_bytes = excluded.size_bytes`).bind(task.targetPath, task.targetRepoId, size),
+            // Source Deletion
+            c.env.DB.prepare(`UPDATE repos SET used_bytes = MAX(0, used_bytes - ?), file_count = MAX(0, file_count - 1) WHERE id = ?`).bind(size, task.sourceRepoId),
+            c.env.DB.prepare(`DELETE FROM paths WHERE path = ?`).bind(task.sourcePath)
+          ];
+          await c.env.DB.batch(batch);
+        } catch (e: any) {
+          logger.error('d1_dual_write_migration_commit_failed', { id: taskId, error: e.message });
+        }
+      }
       
-      task = await updateStatus('indexed');
+      task = (await updateStatus('indexed'))!;
     }
 
     // 5. Done

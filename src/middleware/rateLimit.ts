@@ -2,59 +2,84 @@ import { Context, Next } from 'hono';
 import { AppEnvironment } from '../types/env';
 import { logger } from '../utils/logger';
 
+// In-memory cache for local rate limiting
+const localCache = new Map<string, { count: number; expires: number }>();
+const localBans = new Map<string, number>();
+
 /**
- * Enhanced Rate Limiter (Distributed via KV)
- * 1. Global IP-based Limit: Uses KV for distributed counting.
- * 2. 404 Penalty: If an IP triggers > 20 "404 Not Found" in a minute, block for 5 mins globally.
+ * Enhanced Rate Limiter (Hybrid: In-memory + KV for Bans)
+ * 1. Local IP-based Limit: Uses in-memory Map for efficiency (per isolate).
+ * 2. 404 Penalty: If an IP triggers > 20 "404 Not Found" in a minute, block globally via KV.
  */
 export const rateLimitGuard = async (c: Context<AppEnvironment>, next: Next) => {
   const kv = c.env.REPO_REGISTRY;
-  if (!kv) return await next(); // Skip if KV not configured (fallback)
-
   const ip = c.req.header('CF-Connecting-IP') || 'unknown';
+  const path = c.req.path;
+
+  // Skip rate limiting for system paths
+  if (path === '/healthz' || path.startsWith('/admin')) {
+    return await next();
+  }
+
   const now = Date.now();
   const minuteBucket = Math.floor(now / 60000);
   
-  // 1. Check if explicitly banned (404 Penalty)
+  // 1. Check if explicitly banned (KV check is cached in memory for 1 minute)
   const banKey = `ban::${ip}`;
-  const isBanned = await kv.get(banKey);
-  if (isBanned) {
-    logger.warn('request_blocked_banned_ip', { ip, path: c.req.path });
-    return c.text('Forbidden: Too many 404 errors. Temporarily banned.', 403);
+  const localBanExpiry = localBans.get(ip);
+  if (localBanExpiry && localBanExpiry > now) {
+    return c.text('Forbidden: Temporarily banned.', 403);
   }
 
-  // 2. Global Rate Limit Check
+  if (kv) {
+    const isBanned = await kv.get(banKey, { cacheTtl: 60 });
+    if (isBanned) {
+      localBans.set(ip, now + 60000);
+      logger.warn('request_blocked_banned_ip', { ip, path });
+      return c.text('Forbidden: Too many 404 errors. Temporarily banned.', 403);
+    }
+  }
+
+  // 2. Local Rate Limit Check (In-memory is much cheaper than KV)
   const rateLimit = parseInt(c.env.RATE_LIMIT_PER_MIN || '120', 10);
-  const rlKey = `rl::${ip}::${minuteBucket}`;
+  const rlKey = `${ip}::${minuteBucket}`;
   
-  const currentCountStr = await kv.get(rlKey);
-  const currentCount = currentCountStr ? parseInt(currentCountStr, 10) : 0;
-
-  if (currentCount > rateLimit) {
-    return c.text('Too Many Requests', 429, { 'Retry-After': '60' });
+  const record = localCache.get(rlKey);
+  if (record && record.expires > now) {
+    if (record.count > rateLimit) {
+      return c.text('Too Many Requests', 429, { 'Retry-After': '60' });
+    }
+    record.count++;
+  } else {
+    localCache.set(rlKey, { count: 1, expires: (minuteBucket + 1) * 60000 });
+    // Cleanup old records occasionally
+    if (localCache.size > 1000) {
+      for (const [key, val] of localCache.entries()) {
+        if (val.expires < now) localCache.delete(key);
+      }
+    }
   }
-
-  // Increment count (Atomic increment is not available in standard KV, so we use get-put)
-  // Even with eventual consistency, this is sufficient for rate limiting
-  await kv.put(rlKey, (currentCount + 1).toString(), { expirationTtl: 120 });
 
   // 3. Execute Request
   await next();
 
-  // 4. Post-execution: 404 Tracking
-  if (c.res.status === 404) {
+  // 4. Post-execution: 404 Tracking (Still use KV for persistent global bans if threshold is high)
+  if (c.res.status === 404 && kv) {
     const errorKey = `err404::${ip}::${minuteBucket}`;
-    const errorCountStr = await kv.get(errorKey);
-    const errorCount = errorCountStr ? parseInt(errorCountStr, 10) : 0;
-    const newErrorCount = errorCount + 1;
+    c.executionCtx.waitUntil((async () => {
+      try {
+        const errorCountStr = await kv.get(errorKey);
+        const errorCount = errorCountStr ? parseInt(errorCountStr, 10) : 0;
+        const newErrorCount = errorCount + 1;
 
-    // Threshold: 20 errors per minute
-    if (newErrorCount > 20) {
-      logger.error('404_threshold_exceeded', { ip, count: newErrorCount });
-      // Ban for 5 minutes (300 seconds)
-      await kv.put(banKey, '1', { expirationTtl: 300 });
-    } else {
-      await kv.put(errorKey, newErrorCount.toString(), { expirationTtl: 120 });
-    }
+        if (newErrorCount > 20) {
+          logger.error('404_threshold_exceeded', { ip, count: newErrorCount });
+          await kv.put(banKey, '1', { expirationTtl: 300 });
+          localBans.set(ip, now + 300000);
+        } else {
+          await kv.put(errorKey, newErrorCount.toString(), { expirationTtl: 120 });
+        }
+      } catch {}
+    })());
   }
 };

@@ -1,4 +1,5 @@
 import { Bindings } from '../types/env';
+import { dbService } from './database';
 
 export interface RepoMeta {
   id: string;
@@ -36,30 +37,43 @@ const ensureCache = async (env: Bindings, force: boolean = false) => {
   if (!force && now - lastCacheTime < CACHE_TTL_MS && cachedRepos.size > 0) {
     return;
   }
-// ... rest of function logic remains same but uses force to bypass check
 
   try {
-    if (!env.REPO_REGISTRY) {
-      // Graceful degradation if KV is not bound
-      throw new Error('REPO_REGISTRY KVNamespace not bound');
+    let repos: RepoMeta[] = [];
+    let readRules: ReadRule[] | null = null;
+    let currentWrite: string | null = null;
+
+    // Phase 3: D1 primary
+    if (env.DB) {
+      try {
+        repos = await dbService.getAllRepos(env.DB);
+        const rulesStr = await dbService.getConfig(env.DB, 'route::read_rules');
+        readRules = rulesStr ? JSON.parse(rulesStr) : null;
+        currentWrite = await dbService.getConfig(env.DB, 'route::current_write');
+      } catch (e) {
+        console.error('D1 cache load failed, trying KV:', e);
+      }
     }
 
-    const { keys } = await env.REPO_REGISTRY.list({ prefix: 'repo::' });
-    const repoPromises = keys.map(key => env.REPO_REGISTRY.get<RepoMeta>(key.name, 'json'));
-    const repos = await Promise.all(repoPromises);
+    // Fallback to KV if D1 failed or returned nothing (and KV exists)
+    if (repos.length === 0 && env.REPO_REGISTRY) {
+      const { keys } = await env.REPO_REGISTRY.list({ prefix: 'repo::' });
+      const repoPromises = keys.map(key => env.REPO_REGISTRY.get<RepoMeta>(key.name, 'json'));
+      const kvRepos = await Promise.all(repoPromises);
+      repos = kvRepos.filter(Boolean) as RepoMeta[];
+      readRules = await env.REPO_REGISTRY.get<ReadRule[]>('route::read_rules', 'json');
+      currentWrite = await env.REPO_REGISTRY.get('route::current_write');
+    }
 
-    cachedRepos.clear();
-    repos.forEach(repo => {
-      if (repo) cachedRepos.set(repo.id, repo);
-    });
-
-    cachedReadRules = await env.REPO_REGISTRY.get<ReadRule[]>('route::read_rules', 'json');
-    cachedCurrentWrite = await env.REPO_REGISTRY.get('route::current_write');
-    
-    lastCacheTime = now;
+    if (repos.length > 0) {
+      cachedRepos.clear();
+      repos.forEach(repo => cachedRepos.set(repo.id, repo));
+      cachedReadRules = readRules;
+      cachedCurrentWrite = currentWrite;
+      lastCacheTime = now;
+    }
   } catch (err) {
-    // If KV fails or is not bound, do nothing here and let the fallback handle it
-    console.error('Failed to load repo registry from KV:', err);
+    console.error('Failed to load repo registry:', err);
   }
 };
 
@@ -113,6 +127,8 @@ export const invalidateRepoCache = () => {
 };
 
 export const backfillPathIndex = async (path: string, repoId: string, env: Bindings) => {
+  // DISABLED: High KV write cost. Rule-based resolution is fast enough.
+  /*
   if (!env.REPO_REGISTRY) return;
   try {
     // Check again to avoid unnecessary writes if another isolate did it
@@ -124,6 +140,7 @@ export const backfillPathIndex = async (path: string, repoId: string, env: Bindi
   } catch (err) {
     console.error('Failed to backfill path index:', err);
   }
+  */
 };
 
 export const resolveForRead = async (
@@ -137,7 +154,20 @@ export const resolveForRead = async (
     return getFallbackRepo(env);
   }
 
-  // 1. Check exact path in KV (for files)
+  // 1. Check exact path in D1 (Phase 3 primary)
+  if (env.DB) {
+    try {
+      const repoId = await dbService.getPathRepoId(env.DB, path);
+      if (repoId && cachedRepos.has(repoId)) {
+        const repo = cachedRepos.get(repoId)!;
+        return { meta: repo, token: getTokenFromEnv(env, repo.tokenSecretName) };
+      }
+    } catch (e) {
+      console.error('D1 path resolution failed:', e);
+    }
+  }
+
+  // 2. Fallback to KV for exact path mapping (transition phase)
   if (env.REPO_REGISTRY) {
     const record = await env.REPO_REGISTRY.get(`path::${path}`);
     const repoId = getRepoIdFromRecord(record);
@@ -146,7 +176,7 @@ export const resolveForRead = async (
       return { meta: repo, token: getTokenFromEnv(env, repo.tokenSecretName) };
     }
 
-    // 2. If not found and might be a directory, try prefix search in KV
+    // Prefix search in KV
     if (path) {
       const normalizedPath = path.endsWith('/') ? path : `${path}/`;
       const { keys } = await env.REPO_REGISTRY.list({ prefix: `path::${normalizedPath}`, limit: 1 });
@@ -155,8 +185,6 @@ export const resolveForRead = async (
         const repoId = getRepoIdFromRecord(record);
         if (repoId && cachedRepos.has(repoId)) {
           const repo = cachedRepos.get(repoId)!;
-          // Note: We don't backfill prefix matches to exact matches here to avoid bloat,
-          // but we could if we wanted to speed up specific file access in deep folders.
           return { meta: repo, token: getTokenFromEnv(env, repo.tokenSecretName) };
         }
       }
@@ -224,8 +252,8 @@ export const resolveForWrite = async (env: Bindings, requiredBytes: number = 0):
     for (const repo of cachedRepos.values()) {
       if (repo.id !== currentRepo.id && repo.status === 'active' && repo.sizeBytes + requiredBytes <= repo.capacityLimitBytes) {
         // Automatic switch to new repository with space
-        if (env.REPO_REGISTRY) {
-          await env.REPO_REGISTRY.put('route::current_write', repo.id);
+        if (env.DB) {
+          await dbService.setConfig(env.DB, 'route::current_write', repo.id);
           cachedCurrentWrite = repo.id;
         }
         return { meta: repo, token: getTokenFromEnv(env, repo.tokenSecretName) };

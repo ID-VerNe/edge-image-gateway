@@ -2,10 +2,10 @@
 
 ## 概览
 
-所有 API 端点托管在 Cloudflare Workers 上。基础 URL 示例：
+所有 API 端点托管在 Cloudflare Workers 上。基础 URL 格式：
 
 ```
-https://edge-image-gateway.your-account.workers.dev
+https://{你的域名}
 ```
 
 ---
@@ -40,11 +40,13 @@ GET /{path}
 
 **响应**
 
-- `200 OK` — 图片内容，包含适当的 `Content-Type` 和缓存头
-- `304 Not Modified` — 客户端缓存有效（支持 `If-None-Match` / `If-Modified-Since`）
-- `403 Forbidden` — 防盗链拦截或签名无效
-- `404 Not Found` — 文件不存在
-- `429 Too Many Requests` — 速率超限
+| 状态码 | 说明 |
+|--------|------|
+| `200 OK` | 图片内容，包含适当的 `Content-Type` 和缓存头 |
+| `304 Not Modified` | 客户端缓存有效（支持 `If-None-Match` / `If-Modified-Since`） |
+| `403 Forbidden` | 防盗链拦截或签名无效 |
+| `404 Not Found` | 文件不存在 |
+| `429 Too Many Requests` | 速率超限 |
 
 **示例**
 
@@ -60,6 +62,34 @@ curl https://image.example.com/images/photo.jpg?format=webp
 
 # 裁剪 + 高质量
 curl "https://image.example.com/images/photo.jpg?w=400&h=400&fit=crop&q=90"
+```
+
+### 目录列表
+
+```
+GET /{path}?list
+```
+
+列出指定路径下的文件和子目录。
+
+**查询参数**
+
+| 参数 | 类型 | 说明 |
+|------|------|------|
+| `list` | boolean | 启用目录列表模式 |
+| `depth` | number | 递归深度（默认 `1`，最大 `3`） |
+
+**响应**
+
+```json
+{
+  "path": "/images",
+  "type": "tree",
+  "entries": [
+    { "name": "2025", "path": "/images/2025", "type": "tree" },
+    { "name": "photo.jpg", "path": "/images/photo.jpg", "type": "blob", "size": 102400 }
+  ]
+}
 ```
 
 ---
@@ -90,7 +120,7 @@ POST /upload
 | `path` | string | 否 | 自定义存储路径（含文件名） |
 | `prefix` | string | 否 | 路径前缀，自动与文件名拼接 |
 
-**响应**
+**成功响应**
 
 ```json
 {
@@ -242,38 +272,6 @@ curl -v "https://image.example.com/share/images/photo.jpg?expires=$(( $(date +%s
 
 ---
 
-## 目录列表
-
-### 获取目录树
-
-```
-GET /{path}?list
-```
-
-列出指定路径下的文件和子目录。
-
-**查询参数**
-
-| 参数 | 类型 | 说明 |
-|------|------|------|
-| `list` | boolean | 启用目录列表模式 |
-| `depth` | number | 递归深度（默认 `1`，最大 `3`） |
-
-**响应**
-
-```json
-{
-  "path": "/images",
-  "type": "tree",
-  "entries": [
-    { "name": "2025", "path": "/images/2025", "type": "tree" },
-    { "name": "photo.jpg", "path": "/images/photo.jpg", "type": "blob", "size": 102400 }
-  ]
-}
-```
-
----
-
 ## 管理 API
 
 管理 API 端点需要管理员认证，所有端点以 `/admin` 为前缀。
@@ -288,29 +286,169 @@ GET /{path}?list
 ### 仓库管理
 
 ```
-GET  /admin/api/repos              # 列出所有仓库
-POST /admin/api/repos              # 创建新仓库
-GET  /admin/api/repos/:id          # 获取仓库详情
-PUT  /admin/api/repos/:id          # 更新仓库配置
-DELETE /admin/api/repos/:id        # 删除仓库
-POST /admin/api/repos/:id/sync     # 同步仓库元数据
+GET    /admin/api/repos              # 列出所有仓库
+POST   /admin/api/repos              # 创建新仓库
+GET    /admin/api/repos/:id          # 获取仓库详情
+PUT    /admin/api/repos/:id          # 更新仓库配置
+DELETE /admin/api/repos/:id          # 删除仓库
+POST   /admin/api/repos/:id/sync     # 同步仓库元数据
+```
+
+**创建仓库请求体：**
+
+```json
+{
+  "id": "repo-blog",
+  "owner": "my-org",
+  "name": "blog-images",
+  "branch": "main",
+  "capacityLimitBytes": 5368709120,
+  "tokenSecretName": "GITHUB_TOKEN"
+}
+```
+
+**仓库列表响应：**
+
+```json
+{
+  "repos": [
+    {
+      "id": "repo-main",
+      "owner": "my-org",
+      "name": "images",
+      "branch": "main",
+      "status": "active",
+      "sizeBytes": 1048576,
+      "fileCount": 42,
+      "capacityLimitBytes": 5368709120
+    }
+  ]
+}
 ```
 
 ### 文件管理
 
 ```
-GET  /admin/api/files              # 列出文件（分页）
-GET  /admin/api/files?path=xxx     # 列出目录内容
-DELETE /admin/api/files            # 删除文件
-POST /admin/api/files/move         # 移动/重命名文件
+GET    /admin/api/files              # 列出文件（分页）
+GET    /admin/api/files?path=xxx     # 列出目录内容
+DELETE /admin/api/files              # 删除文件或目录
+POST   /admin/api/files/move         # 移动/重命名文件
+```
+
+**文件列表查询参数：**
+
+| 参数 | 类型 | 默认值 | 说明 |
+|------|------|--------|------|
+| `path` | string | `/` | 目录路径 |
+| `page` | number | `1` | 页码 |
+| `limit` | number | `50` | 每页数量 |
+| `search` | string | — | 搜索关键词 |
+
+**文件列表响应：**
+
+```json
+{
+  "files": [
+    {
+      "name": "photo.jpg",
+      "path": "/images/photo.jpg",
+      "type": "file",
+      "size": 102400,
+      "sha": "abc123",
+      "repo": "repo-main",
+      "updatedAt": "2025-06-01T12:00:00.000Z"
+    }
+  ],
+  "total": 100,
+  "page": 1,
+  "hasMore": true
+}
+```
+
+**删除请求体：**
+
+```json
+{
+  "path": "/images/photo.jpg"
+}
+```
+
+**删除目录：**
+
+```json
+{
+  "path": "/images/old",
+  "type": "dir"
+}
+```
+
+**移动文件请求体：**
+
+```json
+{
+  "source": "/images/old-name.jpg",
+  "destination": "/images/new-name.jpg"
+}
+```
+
+### 上传（管理面板）
+
+```
+POST /admin/api/upload
+```
+
+**请求头：**
+
+| 头 | 值 | 说明 |
+|----|----|------|
+| `Authorization` | `Bearer <token>` 或 `<totp>` | 管理认证 |
+| `Content-Type` | `multipart/form-data` | 文件上传 |
+
+**请求体（multipart/form-data）：**
+
+| 字段 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `file` | File | 是 | 要上传的文件 |
+| `path` | string | 否 | 目标目录路径 |
+
+**响应：**
+
+```json
+{
+  "success": true,
+  "url": "/images/uploaded-photo.jpg",
+  "fullUrl": "https://{你的域名}/images/uploaded-photo.jpg",
+  "path": "images/uploaded-photo.jpg",
+  "repo": "repo-main",
+  "size": 102400,
+  "sha256": "abc123..."
+}
 ```
 
 ### 统计
 
 ```
 GET /admin/api/stats               # 获取系统概览统计
-GET /admin/api/stats/repos         # 各仓库统计
-GET /admin/api/stats/requests      # 请求统计
+```
+
+**响应：**
+
+```json
+{
+  "totalRepos": 3,
+  "totalFiles": 1250,
+  "totalSizeBytes": 2147483648,
+  "totalSizeFormatted": "2.00 GB",
+  "repos": [
+    {
+      "id": "repo-main",
+      "fileCount": 500,
+      "sizeBytes": 1073741824,
+      "sizeFormatted": "1.00 GB",
+      "capacityPercent": 20.0
+    }
+  ]
+}
 ```
 
 ### 审计日志
@@ -319,21 +457,50 @@ GET /admin/api/stats/requests      # 请求统计
 GET /admin/api/audit               # 查询审计日志
 ```
 
-**查询参数**
+**查询参数：**
 
 | 参数 | 类型 | 说明 |
 |------|------|------|
 | `limit` | number | 返回条数（默认 `50`，最大 `200`） |
 | `cursor` | string | 分页游标 |
-| `action` | string | 按操作类型筛选：`delete` / `upload` / `repo_create` / `repo_delete` |
+| `action` | string | 按操作类型筛选 |
 | `repoId` | string | 按仓库筛选 |
+
+**响应：**
+
+```json
+{
+  "entries": [
+    {
+      "timestamp": "2025-06-01T12:00:00.000Z",
+      "action": "DELETE_FILE",
+      "actor": "admin@example.com",
+      "details": {
+        "path": "/images/photo.jpg",
+        "repo": "repo-main"
+      },
+      "ip": "203.0.113.1"
+    }
+  ],
+  "cursor": "next-page-cursor"
+}
+```
 
 ### 分享管理
 
 ```
-GET  /admin/api/shares             # 列出分享令牌
-POST /admin/api/shares             # 创建分享令牌
-DELETE /admin/api/shares/:id       # 撤销分享令牌
+GET    /admin/api/shares             # 列出分享令牌
+POST   /admin/api/shares             # 创建分享令牌
+DELETE /admin/api/shares/:id         # 撤销分享令牌
+```
+
+**创建分享令牌请求体：**
+
+```json
+{
+  "path": "/images/photo.jpg",
+  "expiresIn": 3600
+}
 ```
 
 ### 缓存管理
@@ -342,7 +509,7 @@ DELETE /admin/api/shares/:id       # 撤销分享令牌
 POST /admin/api/cache/purge        # 清除缓存
 ```
 
-**请求体**
+**请求体：**
 
 ```json
 {
@@ -351,11 +518,33 @@ POST /admin/api/cache/purge        # 清除缓存
 }
 ```
 
-### 配置
+### 配置管理
 
 ```
 GET  /admin/api/config             # 获取运行时配置
 PUT  /admin/api/config             # 更新运行时配置
+```
+
+---
+
+## 健康检查
+
+```
+GET /healthz
+```
+
+**响应：**
+
+```json
+{
+  "ok": true,
+  "version": "1.0.0",
+  "env_configured": true,
+  "features": {
+    "signature": true,
+    "referer_protection": true
+  }
+}
 ```
 
 ---
@@ -376,3 +565,21 @@ PUT  /admin/api/config             # 更新运行时配置
 | `429` | 请求过多 | 速率超限 |
 | `500` | 服务器错误 | 内部异常 |
 | `503` | 服务不可用 | 紧急熔断已激活 |
+
+---
+
+## 速率限制
+
+所有 API 端点共享全局速率限制。超限时返回：
+
+```
+HTTP/1.1 429 Too Many Requests
+Retry-After: 60
+```
+
+```json
+{
+  "error": "Too Many Requests",
+  "message": "Rate limit exceeded. Try again in 60 seconds."
+}
+```

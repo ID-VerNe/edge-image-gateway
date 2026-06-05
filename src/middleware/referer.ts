@@ -9,11 +9,21 @@ import { logger } from '../utils/logger';
  * 3. Handles empty Referer using Sec-Fetch-Dest: image to allow legitimate browser loads while blocking tools.
  */
 export const refererGuard = async (c: Context<AppEnvironment>, next: Next) => {
-  const path = c.req.path;
+  const reqUrl = new URL(c.req.url);
+  // Normalize path: decode and ensure leading slash
+  let path = reqUrl.pathname;
+  try {
+    path = decodeURIComponent(path);
+  } catch (e) {}
+  if (!path.startsWith('/')) path = '/' + path;
+
+  const sig = c.req.query('sig');
+  const internalSig = c.req.query('__sig');
   
-  // Skip referer check for strictly signed paths
-  // These are handled by signatureGuard, so we don't need referer-based exemption here
-  if (path.startsWith('/private/') || path.startsWith('/draft/') || path.startsWith('/raw/')) {
+  // Skip referer check for strictly signed paths, system paths, or requests with a signature
+  if (path === '/healthz' || path === '/' || path.startsWith('/admin') || 
+      path.startsWith('/private/') || path.startsWith('/draft/') || path.startsWith('/raw/') ||
+      sig || internalSig) {
     return await next();
   }
 

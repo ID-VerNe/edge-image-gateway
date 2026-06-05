@@ -140,4 +140,17 @@ export const REPO_ACTIONS = `
     } catch(e) { alert(e.message); }
     hideLoader();
   }
+
+  async function startBackfill() {
+    if(!confirm('Start backfilling data from KV to D1? This may take some time.')) return;
+    showLoader('Migrating data to D1...');
+    try {
+      const res = await fetch('/admin/api/backfill/start', { method: 'POST' });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Backfill failed');
+      
+      alert('Migration complete!\\nRepos: ' + data.results.repos + '\\nPaths: ' + data.results.paths + '\\nTokens: ' + data.results.tokens);
+    } catch(e) { alert(e.message); }
+    hideLoader();
+  }
 `;

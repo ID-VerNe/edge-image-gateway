@@ -13,6 +13,7 @@ import fileApi from './admin/api/files';
 import uploadApi from './admin/api/upload';
 import statsApi from './admin/api/stats';
 import auditApi from './admin/api/audit';
+import backfillApi from './admin/api/backfill';
 
 const adminApp = new Hono<AppEnvironment>();
 
@@ -33,6 +34,7 @@ adminApp.route('/api/files', fileApi);
 adminApp.route('/api/upload', uploadApi);
 adminApp.route('/api/stats', statsApi);
 adminApp.route('/api/audit', auditApi);
+adminApp.route('/api/backfill', backfillApi);
 
 // Cache Purge
 adminApp.post('/api/cache/purge', async (c) => {

@@ -1,4 +1,5 @@
 import { alertThrottled } from './notifications';
+import { dbService } from '../services/database';
 
 export const logger = {
   info: (event: string, data: Record<string, any>) => {
@@ -12,7 +13,7 @@ export const logger = {
   },
   metrics: (c: any, data: {
     repoId?: string;
-    cacheStatus: 'HIT' | 'MISS' | 'BYPASS';
+    cacheStatus: 'HIT' | 'MISS' | 'BYPASS' | 'R2-HIT';
     statusCode: number;
     durationMs: number;
     hasResize: boolean;
@@ -34,40 +35,6 @@ export const logger = {
         indexes: [data.repoId || 'unknown']
       });
     }
-
-    // Real-time Anomaly Detection (4xx Ratio)
-    if (c.env.REPO_REGISTRY) {
-      const minute = Math.floor(Date.now() / 60000);
-      const totalKey = `stats::total::\${minute}`;
-      const err4xxKey = `stats::4xx::\${minute}`;
-      
-      c.executionCtx.waitUntil((async () => {
-        try {
-          // Increment counters (Best effort, non-atomic KV is fine for trend detection)
-          const [tStr, eStr] = await Promise.all([
-            c.env.REPO_REGISTRY.get(totalKey),
-            c.env.REPO_REGISTRY.get(err4xxKey)
-          ]);
-          
-          const total = (parseInt(tStr || '0', 10)) + 1;
-          let err4xx = parseInt(eStr || '0', 10);
-          if (data.statusCode >= 400 && data.statusCode < 500) err4xx++;
-          
-          await Promise.all([
-            c.env.REPO_REGISTRY.put(totalKey, total.toString(), { expirationTtl: 300 }),
-            c.env.REPO_REGISTRY.put(err4xxKey, err4xx.toString(), { expirationTtl: 300 })
-          ]);
-
-          // Alert if ratio > 30% and volume is significant (> 10 reqs)
-          if (total > 10 && (err4xx / total) > 0.3) {
-            await alertThrottled('anomaly_4xx', 
-              `🕵️ <b>Traffic Anomaly Detected</b>\nHigh 4xx error rate: <b>\${Math.round((err4xx/total)*100)}%</b>\nMinute: \${minute}\nTotal: \${total} | 4xx: \${err4xx}\nPossible scraping or broken links.`,
-              c.env, 1, c.executionCtx
-            );
-          }
-        } catch {}
-      })());
-    }
   },
   captureError: (c: any, err: any, context: Record<string, any> = {}) => {
     const dsn = c.env.SENTRY_DSN;
@@ -75,8 +42,8 @@ export const logger = {
     try {
       const url = new URL(dsn);
       const projectId = url.pathname.slice(1);
-      const apiUrl = `https://\${url.host}/api/\${projectId}/store/`;
-      const auth = `Sentry sentry_version=7, sentry_key=\${url.username}, sentry_client=cf-worker-img-proxy/1.0`;
+      const apiUrl = `https://${url.host}/api/${projectId}/store/`;
+      const auth = `Sentry sentry_version=7, sentry_key=${url.username}, sentry_client=cf-worker-img-proxy/1.0`;
       
       const event = {
         event_id: crypto.randomUUID().replace(/-/g, ''),
@@ -99,26 +66,38 @@ export const logger = {
     }
   },
   recordAudit: async (c: any, action: string, data: Record<string, any>) => {
-    if (!c.env.REPO_REGISTRY) return;
-    try {
-      const user = c.get('user') || { email: 'system' };
-      const ip = c.req.header('CF-Connecting-IP') || 'unknown';
-      const timestamp = Date.now();
-      const auditKey = `audit::\${timestamp}::\${action}`;
-      
-      const payload = {
-        ts: new Date(timestamp).toISOString(),
-        action,
-        user: user.email,
-        ip,
-        ...data
-      };
+    const user = c.get('user') || { email: 'system' };
+    const ip = c.req.header('CF-Connecting-IP') || 'unknown';
+    const timestamp = Date.now();
 
-      await c.env.REPO_REGISTRY.put(auditKey, JSON.stringify(payload), { 
-        expirationTtl: 90 * 24 * 60 * 60 // 90 days 
-      });
-    } catch (e) {
-      console.error('Failed to record audit log:', e);
+    // Phase 3: D1 primary for audit logs
+    if (c.env.DB) {
+      try {
+        await dbService.recordAudit(c.env.DB, action, user.email, ip, data);
+      } catch (e) {
+        console.error('Failed to record audit log to D1:', e);
+      }
+    }
+
+    // Dual-write to KV (Background)
+    if (c.env.REPO_REGISTRY) {
+      c.executionCtx.waitUntil((async () => {
+        try {
+          const auditKey = `audit::${timestamp}::${action}`;
+          const payload = {
+            ts: new Date(timestamp).toISOString(),
+            action,
+            user: user.email,
+            ip,
+            ...data
+          };
+          await c.env.REPO_REGISTRY!.put(auditKey, JSON.stringify(payload), { 
+            expirationTtl: 90 * 24 * 60 * 60 // 90 days 
+          });
+        } catch (e) {
+          console.error('Failed to record audit log to KV:', e);
+        }
+      })());
     }
   }
 };

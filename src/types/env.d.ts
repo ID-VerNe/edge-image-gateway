@@ -2,6 +2,12 @@ export interface Bindings {
   // KV Namespace for Repo Registry
   REPO_REGISTRY: KVNamespace;
 
+  // D1 Database for Structured Data
+  DB: D1Database;
+
+  // R2 Bucket for Variation Cache
+  CACHE_BUCKET: R2Bucket;
+
   // Fallback / Default Repo Config (used if KV is not setup or empty)
   GITHUB_USER: string;
   GITHUB_REPO: string;

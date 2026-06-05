@@ -1,19 +1,24 @@
 import { Context } from 'hono';
 import { AppEnvironment } from '../types/env';
 import { fetchFromGitHub } from '../services/github';
-import { resolveForRead } from '../services/repoRouter';
+import { resolveForRead, ResolvedRepo } from '../services/repoRouter';
 import { getMimeType } from '../utils/mime';
 import { logger } from '../utils/logger';
 import { generateHMAC } from '../utils/hmac';
 import { recordCacheVariant } from '../utils/cache';
+import { r2Cache } from '../utils/r2Cache';
 
 export const handleImageRequest = async (c: Context<AppEnvironment>) => {
   const reqUrl = new URL(c.req.url);
-  // Normalize path
-  let path = reqUrl.pathname.replace(/^\/+/, '');
+  // Normalize path: decode and ensure leading slash
+  let path = reqUrl.pathname;
+  try {
+    path = decodeURIComponent(path);
+  } catch (e) {}
+  if (!path.startsWith('/')) path = '/' + path;
   
   // 1. Handle root path
-  if (!path) {
+  if (path === '/') {
     const title = c.env.APP_TITLE || 'Edge Image Gateway';
     const desc = c.env.APP_DESCRIPTION || 'Ready to serve images.';
     return c.html(`
@@ -41,11 +46,23 @@ export const handleImageRequest = async (c: Context<AppEnvironment>) => {
     // Verify internal signature to prevent abuse
     const expectedSig = await generateHMAC(path, c.env.SIGN_SECRET);
     if (internalSig === expectedSig) {
-      const repo = await resolveForRead(path, c.env, (p) => c.executionCtx.waitUntil(p));
-      const resp = await fetchFromGitHub(path, repo, undefined, c.env, c.executionCtx);
+      // For GitHub API, we need to strip the leading slash
+      const ghPath = path.replace(/^\/+/, '');
+      const repo = await resolveForRead(ghPath, c.env, (p) => c.executionCtx.waitUntil(p));
+      const resp = await fetchFromGitHub(ghPath, repo, undefined, c.env, c.executionCtx);
+      
       const newResp = new Response(resp.body, resp);
-      newResp.headers.set('Content-Type', getMimeType(path));
+      // STRICT OVERRIDE: Prevent JSON metadata poisoning
+      newResp.headers.set('Content-Type', getMimeType(ghPath));
       newResp.headers.delete('Content-Disposition');
+      
+      // De-identify loopback responses too
+      newResp.headers.delete('Server');
+      newResp.headers.delete('X-Powered-By');
+      newResp.headers.forEach((_, key) => {
+        if (key.toLowerCase().startsWith('x-github-')) newResp.headers.delete(key);
+      });
+
       return newResp;
     }
   }
@@ -56,6 +73,7 @@ export const handleImageRequest = async (c: Context<AppEnvironment>) => {
   const quality = reqUrl.searchParams.get('q');
   const fit = reqUrl.searchParams.get('fit') as any;
   const isImage = /\.(jpg|jpeg|png|webp|avif|gif|svg)$/i.test(path);
+  const isResizing = !!(width || height || quality || fit);
 
   // Determine cache key
   const cacheKey = new Request(reqUrl.toString(), { method: 'GET' });
@@ -67,29 +85,42 @@ export const handleImageRequest = async (c: Context<AppEnvironment>) => {
     const cachedResponse = await cache.match(cacheKey);
     if (cachedResponse) {
       const duration = Date.now() - startTime;
-      logger.info('cache_hit', { path, ms: duration });
+      logger.info('cache_hit_edge', { path, ms: duration });
       
-      // Metrics for Cache Hit
-      logger.metrics(c, {
-        cacheStatus: 'HIT',
-        statusCode: cachedResponse.status,
-        durationMs: duration,
-        hasResize: !!(width || height || quality || fit),
-        pathPrefix: path.split('/')[0] || 'root'
-      });
-
       const newResponse = new Response(cachedResponse.body, cachedResponse);
       newResponse.headers.set('X-Cache', 'HIT');
       return newResponse;
     }
 
-    let finalResponse: Response;
+    // --- PHASE 2: R2 Cache Check ---
+    const r2Key = r2Cache.generateKey(path, reqUrl.searchParams);
+    const r2Object = await r2Cache.get(c.env, r2Key);
 
-    // 4. If resizing is needed for a PRIVATE repo, we must use a loopback URL
-    if (isImage && (width || height || quality || fit)) {
+    if (r2Object) {
+      const duration = Date.now() - startTime;
+      logger.info('cache_hit_r2', { path, key: r2Key, ms: duration });
+
+      const ttl = parseInt(c.env.CACHE_TTL_SECONDS || '604800', 10);
+      const responseHeaders = new Headers();
+      r2Object.writeHttpMetadata(responseHeaders);
+      responseHeaders.set('Cache-Control', `public, max-age=${ttl}, s-maxage=${ttl}, immutable`);
+      responseHeaders.set('X-Cache', 'R2-HIT');
+      responseHeaders.set('X-Content-Type-Options', 'nosniff');
+
+      const r2Response = new Response(r2Object.body, { headers: responseHeaders });
+      c.executionCtx.waitUntil(cache.put(cacheKey, r2Response.clone()));
+      return r2Response;
+    }
+
+    let finalResponse: Response;
+    let repo: ResolvedRepo | null = null;
+    const ghPath = path.replace(/^\/+/, '');
+
+    // 4. If resizing is needed, we must use a loopback URL
+    if (isImage && isResizing) {
       const sig = await generateHMAC(path, c.env.SIGN_SECRET);
       const loopbackUrl = new URL(c.req.url);
-      loopbackUrl.search = ''; // Clear original params
+      loopbackUrl.search = ''; 
       loopbackUrl.searchParams.set('__internal_loopback', 'true');
       loopbackUrl.searchParams.set('__sig', sig);
 
@@ -103,23 +134,20 @@ export const handleImageRequest = async (c: Context<AppEnvironment>) => {
         }
       };
 
-      // Fetch "self" - the resizing proxy will now call our Worker back
       finalResponse = await fetch(loopbackUrl.toString(), { 
         headers: { 'Referer': c.req.url },
         cf: cfOptions 
       });
       
-      // If loopback fails (e.g. 415/400 because plan doesn't support it), fallback to original
       if (finalResponse.status === 415 || finalResponse.status === 400) {
-        const repo = await resolveForRead(path, c.env, (p) => c.executionCtx.waitUntil(p));
-        finalResponse = await fetchFromGitHub(path, repo, undefined, c.env, c.executionCtx);
+        repo = await resolveForRead(ghPath, c.env, (p) => c.executionCtx.waitUntil(p));
+        finalResponse = await fetchFromGitHub(ghPath, repo, undefined, c.env, c.executionCtx);
       }
     } else {
-      const repo = await resolveForRead(path, c.env, (p) => c.executionCtx.waitUntil(p));
-      finalResponse = await fetchFromGitHub(path, repo, undefined, c.env, c.executionCtx);
+      repo = await resolveForRead(ghPath, c.env, (p) => c.executionCtx.waitUntil(p));
+      finalResponse = await fetchFromGitHub(ghPath, repo, undefined, c.env, c.executionCtx);
     }
 
-    // 5. Handle errors and caching strategies
     const status = finalResponse.status;
     let ttl = 0;
 
@@ -133,19 +161,13 @@ export const handleImageRequest = async (c: Context<AppEnvironment>) => {
       return c.text('Bad Gateway: Origin Server Error', 502);
     }
 
-    // Prepare new response with appropriate headers
-    const body = [200, 404].includes(status) ? finalResponse.body : `${status} Error from Origin`;
     const responseHeaders = new Headers(finalResponse.headers);
-    
-    // --- THOROUGH DE-IDENTIFICATION ---
-    // Remove all traces of GitHub and server info
     responseHeaders.delete('Server');
     responseHeaders.delete('Set-Cookie');
     responseHeaders.delete('Content-Disposition');
     responseHeaders.delete('Link');
     responseHeaders.delete('X-Powered-By');
     
-    // Loop through and delete all GitHub specific headers
     const headersToDelete: string[] = [];
     responseHeaders.forEach((_, key) => {
       if (key.toLowerCase().startsWith('x-github-') || key.toLowerCase().startsWith('access-control-')) {
@@ -154,11 +176,14 @@ export const handleImageRequest = async (c: Context<AppEnvironment>) => {
     });
     headersToDelete.forEach(key => responseHeaders.delete(key));
 
+    let detectedMime = getMimeType(ghPath);
     if (status === 200) {
-      const detectedMime = getMimeType(path);
       const currentType = responseHeaders.get('Content-Type');
-      if (!currentType || currentType.includes('application/vnd.github') || currentType === 'application/octet-stream') {
+      // STRICT OVERRIDE: If origin returned JSON for an image path, force the correct MIME
+      if (!currentType || currentType.includes('application/json') || currentType.includes('application/vnd.github') || currentType === 'application/octet-stream') {
         responseHeaders.set('Content-Type', detectedMime);
+      } else {
+        detectedMime = currentType;
       }
       responseHeaders.set('Vary', 'Accept');
     } else if (status === 404) {
@@ -172,32 +197,36 @@ export const handleImageRequest = async (c: Context<AppEnvironment>) => {
     responseHeaders.set('X-Content-Type-Options', 'nosniff');
     responseHeaders.set('X-Cache', 'MISS');
 
-    const outputResponse = new Response(body, {
+    let responseBody: any = finalResponse.body;
+    if (status === 200 && isImage) {
+      const buffer = await finalResponse.arrayBuffer();
+      responseBody = buffer;
+      
+      c.executionCtx.waitUntil((async () => {
+        try {
+          await r2Cache.put(c.env, r2Key, buffer, detectedMime);
+          logger.info('cache_save_r2', { path, key: r2Key });
+        } catch (e: any) {
+          logger.error('cache_save_r2_failed', { path, error: e.message });
+        }
+      })());
+    }
+
+    const outputResponse = new Response(responseBody, {
       status: status === 200 ? 200 : status,
       headers: responseHeaders
     });
 
     if (ttl > 0) {
       c.executionCtx.waitUntil(cache.put(cacheKey, outputResponse.clone()));
-      // Record variant if has query params
       if (reqUrl.search) {
-        c.executionCtx.waitUntil(recordCacheVariant(path, reqUrl.toString(), c.env));
+        c.executionCtx.waitUntil(recordCacheVariant(ghPath, reqUrl.toString(), c.env));
       }
     }
 
     const duration = Date.now() - startTime;
     logger.info('request_done', { path, status, ms: duration });
     
-    // Structured Metrics for Analytics Engine
-    logger.metrics(c, {
-      repoId: repo?.meta?.id,
-      cacheStatus: 'MISS',
-      statusCode: status,
-      durationMs: duration,
-      hasResize: !!(width || height || quality || fit),
-      pathPrefix: path.split('/')[0] || 'root'
-    });
-
     return outputResponse;
 
   } catch (error: any) {

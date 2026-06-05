@@ -1,4 +1,6 @@
 export const NAVIGATION = `
+  let allFiles = [];
+
   async function init() {
     const btn = document.getElementById('toggle-view-btn');
     if (btn) btn.innerText = viewMode === 'list' ? 'Grid View' : 'List View';
@@ -34,32 +36,28 @@ export const NAVIGATION = `
       if(list) list.innerHTML = repos.map(repo => {
         const isCurrentWrite = repo.id === currentWriteId;
         const isFallback = repo.id === 'fallback';
-        return \`
-          <div style="padding:1.5rem; border:1px solid \${isCurrentWrite ? 'var(--kami-blue)' : 'var(--kami-border)'}; border-radius:6px; margin-bottom:1.5rem; background:#fff; position:relative;">
-            \${isCurrentWrite ? '<div style="position:absolute; top:0; right:1.5rem; background:var(--kami-blue); color:#fff; font-size:0.7rem; padding:2px 8px; border-radius:0 0 4px 4px; font-weight:600;">ACTIVE WRITE TARGET</div>' : ''}
-            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem;">
-              <div style="font-size:1.1rem; font-weight:600;">\${repo.id} <span style="font-weight:400; color:#57606a; font-size:0.9rem;">(\${repo.owner}/\${repo.name})</span></div>
-              <div style="display:flex; gap:0.5rem; align-items:center;">
-                \${!isCurrentWrite ? \`<button class="btn" style="font-size:0.75rem; padding:2px 8px;" onclick="setWriteRepo('\${repo.id}')">Set Active</button>\` : ''}
-                \${!isFallback ? \`
-                  <button class="btn" style="font-size:0.75rem; padding:2px 8px;" onclick='showEditRepoModal(\${JSON.stringify(repo)})'>Edit</button>
-                  <button class="btn btn-danger" style="font-size:0.75rem; padding:2px 8px;" onclick="deleteRepo('\${repo.id}')">Delete</button>
-                \` : ''}
-                <button class="btn" style="font-size:0.75rem; padding:2px 8px;" onclick="syncRepo('\${repo.id}')">Sync</button>
-                <div class="tree-item" style="padding:0; cursor:default;"><i style="color:\${repo.status === 'active' ? '#2da44e' : '#cf222e'}">●</i> \${repo.status}</div>
-              </div>
-            </div>
-            <div style="font-size:0.875rem; color:#57606a; margin-bottom:0.5rem;">Capacity: \${(repo.sizeBytes / (1024*1024)).toFixed(1)} MB / \${(repo.capacityLimitBytes / (1024*1024*1024)).toFixed(0)} GB</div>
-            <div class="progress-container" style="display:block; margin:0; background:#eee; height:10px;">
-              <div class="progress-bar" style="width:\${Math.min(100, (repo.sizeBytes / repo.capacityLimitBytes) * 100)}%; background:\${(repo.sizeBytes / repo.capacityLimitBytes) > 0.8 ? '#cf222e' : '#2da44e'}"></div>
-            </div>
-          </div>
-        \`;
+        return '<div style="padding:1.5rem; border:1px solid ' + (isCurrentWrite ? 'var(--kami-blue)' : 'var(--kami-border)') + '; border-radius:6px; margin-bottom:1.5rem; background:var(--card-bg); position:relative;">' +
+            (isCurrentWrite ? '<div style="position:absolute; top:0; right:1.5rem; background:var(--kami-blue); color:#fff; font-size:0.7rem; padding:2px 8px; border-radius:0 0 4px 4px; font-weight:600;">ACTIVE WRITE TARGET</div>' : '') +
+            '<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem;">' +
+              '<div style="font-size:1.1rem; font-weight:600;">' + repo.id + ' <span style="font-weight:400; color:var(--kami-ink-muted); font-size:0.9rem;">(' + repo.owner + '/' + repo.name + ')</span></div>' +
+              '<div style="display:flex; gap:0.5rem; align-items:center;">' +
+                (!isCurrentWrite ? '<button class="btn" style="font-size:0.75rem; padding:2px 8px;" onclick="setWriteRepo(\\'' + repo.id + '\\')">Set Active</button>' : '') +
+                (!isFallback ? 
+                  '<button class="btn" style="font-size:0.75rem; padding:2px 8px;" onclick=\\'showEditRepoModal(' + JSON.stringify(repo) + ')\\'>Edit</button>' +
+                  '<button class="btn btn-danger" style="font-size:0.75rem; padding:2px 8px;" onclick="deleteRepo(\\'' + repo.id + '\\')">Delete</button>'
+                 : '') +
+                '<button class="btn" style="font-size:0.75rem; padding:2px 8px;" onclick="syncRepo(\\'' + repo.id + '\\')">Sync</button>' +
+                '<div class="tree-item" style="padding:0; cursor:default;"><i style="color:' + (repo.status === 'active' ? '#2da44e' : '#cf222e') + '">●</i> ' + repo.status + '</div>' +
+              '</div>' +
+            '</div>' +
+            '<div style="font-size:0.875rem; color:var(--kami-ink-muted); margin-bottom:0.5rem;">Capacity: ' + (repo.sizeBytes / (1024*1024)).toFixed(1) + ' MB / ' + (repo.capacityLimitBytes / (1024*1024*1024)).toFixed(0) + ' GB</div>' +
+            '<div class="progress-container" style="display:block; margin:0; background:var(--github-gray); height:10px;">' +
+              '<div class="progress-bar" style="width:' + Math.min(100, (repo.sizeBytes / repo.capacityLimitBytes) * 100) + '%; background:' + ((repo.sizeBytes / repo.capacityLimitBytes) > 0.8 ? '#cf222e' : '#2da44e') + '"></div>' +
+            '</div>' +
+          '</div>';
       }).join('');
     } catch(e) {}
   }
-
-  let allFiles = [];
 
   async function loadFiles(path = '') {
     currentPath = path.replace(/^\\/+|\\/+$/g, '');
@@ -90,35 +88,6 @@ export const NAVIGATION = `
     renderFileList(filtered);
   }
 
-  async function loadTrash() {
-    switchView('trash');
-    const container = document.getElementById('trash-container');
-    if(container) container.innerHTML = '<div style="padding:2rem; text-align:center;">Loading...</div>';
-    try {
-      const r = await fetch('/admin/api/files?prefix=.trash/');
-      const data = await r.json();
-      const files = data.files || [];
-      
-      if (files.length === 0) {
-        container.innerHTML = '<div style="padding:2rem; text-align:center; color:#57606a;">Recycle Bin is empty.</div>';
-        return;
-      }
-
-      container.innerHTML = files.map(f => \`
-        <div class="file-row">
-          <div class="file-icon">🗑️</div>
-          <div class="file-name">\${f.path}</div>
-          <div class="file-meta">\${(f.size / 1024).toFixed(1)} KB</div>
-          <div class="file-meta">\${f.updated_at || ''}</div>
-          <div class="file-actions">
-            <button class="btn btn-mini" onclick="restoreFile('\${f.path}')">Restore</button>
-            <button class="btn btn-mini btn-danger" onclick="deleteFilePermanently('\${f.path}')">Delete</button>
-          </div>
-        </div>
-      \`).join('');
-    } catch (e) { container.innerHTML = '<div style="padding:2rem; text-align:center; color:#cf222e;">Failed to load trash.</div>'; }
-  }
-
   function renderSidebarTree(currentFiles) {
     const treeContainer = document.getElementById('file-tree-sidebar');
     if (!treeContainer) return;
@@ -126,17 +95,16 @@ export const NAVIGATION = `
     const folders = currentFiles.filter(f => f.type === 'dir');
     const pathParts = currentPath ? currentPath.split('/') : [];
     
-    // Simple tree rendering: always show root and current folders
-    let html = \`<div class="tree-item root \${!currentPath ? 'active' : ''}" onclick="loadFiles('')">root</div>\`;
+    let html = '<div class="tree-item root ' + (!currentPath ? 'active' : '') + '" onclick="loadFiles(\\'' + '\\')">root</div>';
     
     let build = '';
     pathParts.forEach((p, i) => {
       build += (i === 0 ? '' : '/') + p;
-      html += \`<div class="tree-item folder open active" style="padding-left: \${(i+1) * 1.25}rem" onclick="loadFiles('\${build}')">\${p}</div>\`;
+      html += '<div class="tree-item folder open active" style="padding-left: ' + ((i+1) * 1.25) + 'rem" onclick="loadFiles(\\'' + build + '\\')">' + p + '</div>';
     });
 
     folders.forEach(f => {
-      html += \`<div class="tree-item folder" style="padding-left: \${(pathParts.length + 1) * 1.25}rem" onclick="loadFiles('\${f.path}')">\${f.name}</div>\`;
+      html += '<div class="tree-item folder" style="padding-left: ' + ((pathParts.length + 1) * 1.25) + 'rem" onclick="loadFiles(\\'' + f.path + '\\')">' + f.name + '</div>';
     });
 
     treeContainer.innerHTML = html;
@@ -146,12 +114,12 @@ export const NAVIGATION = `
     const bc = document.getElementById('breadcrumbs');
     if(!bc) return;
     const parts = currentPath ? currentPath.split('/') : [];
-    let html = '<span class="breadcrumb-item" onclick="loadFiles(\\'\\')">root</span>';
+    let html = '<span class="breadcrumb-item" onclick="loadFiles(\\'' + '\\')">root</span>';
     let build = '';
     parts.forEach((p, i) => {
       build += (i === 0 ? '' : '/') + p;
       html += '<span class="breadcrumb-sep">/</span>';
-      html += \`<span class="breadcrumb-item \${i === parts.length-1 ? 'current' : ''}" onclick="loadFiles('\${build}')">\${p}</span>\`;
+      html += '<span class="breadcrumb-item ' + (i === parts.length-1 ? 'current' : '') + '" onclick="loadFiles(\\'' + build + '\\')">' + p + '</span>';
     });
     bc.innerHTML = html;
   }
@@ -161,7 +129,6 @@ export const NAVIGATION = `
     const main = document.getElementById('main-' + v);
     if(main) main.style.display = 'flex';
     
-    // Sidebar highlight
     document.querySelectorAll('aside .tree-item').forEach(i => i.classList.remove('active'));
     if(v === 'repos') {
       const settingsNav = document.getElementById('nav-settings');
@@ -174,10 +141,6 @@ export const NAVIGATION = `
       const auditNav = document.getElementById('nav-audit');
       if(auditNav) auditNav.classList.add('active');
       loadAuditLogs();
-    } else if(v === 'trash') {
-      const trashNav = document.getElementById('nav-trash');
-      if(trashNav) trashNav.classList.add('active');
-      loadTrash();
     } else if(v === 'files' && !currentPath) {
        const rootNav = document.querySelector('.tree-item.root');
        if(rootNav) rootNav.classList.add('active');
@@ -193,7 +156,7 @@ export const NAVIGATION = `
       const logs = data.logs || [];
       
       if (logs.length === 0) {
-        list.innerHTML = '<tr><td colspan="5" style="padding:2rem; text-align:center; color:#57606a;">No audit logs found.</td></tr>';
+        list.innerHTML = '<tr><td colspan="5" style="padding:2rem; text-align:center; color:var(--kami-ink-muted);">No audit logs found.</td></tr>';
         return;
       }
 
@@ -204,15 +167,13 @@ export const NAVIGATION = `
             details += k + ': <b>' + log[k] + '</b> | ';
           }
         }
-        return \`
-          <tr style="border-bottom:1px solid var(--kami-border);">
-            <td style="padding:0.75rem; white-space:nowrap;">\${new Date(log.ts).toLocaleString()}</td>
-            <td style="padding:0.75rem; color:var(--kami-blue); font-weight:500;">\${log.user}</td>
-            <td style="padding:0.75rem;"><span class="badge" style="background:#eef; color:#0550ae; font-size:0.7rem; padding:2px 6px; border-radius:4px; font-weight:600;">\${log.action}</span></td>
-            <td style="padding:0.75rem; font-family:monospace; font-size:0.75rem; color:#57606a;">\${log.ip}</td>
-            <td style="padding:0.75rem; font-size:0.75rem; color:#57606a;">\${details}</td>
-          </tr>
-        \`;
+        return '<tr style="border-bottom:1px solid var(--kami-border);">' +
+            '<td style="padding:0.75rem; white-space:nowrap;">' + new Date(log.ts).toLocaleString() + '</td>' +
+            '<td style="padding:0.75rem; color:var(--kami-blue); font-weight:500;">' + log.user + '</td>' +
+            '<td style="padding:0.75rem;"><span class="badge" style="background:rgba(88,166,255,0.1); color:var(--kami-blue); font-size:0.7rem; padding:2px 6px; border-radius:4px; font-weight:600;">' + log.action + '</span></td>' +
+            '<td style="padding:0.75rem; font-family:monospace; font-size:0.75rem; color:var(--kami-ink-muted);">' + log.ip + '</td>' +
+            '<td style="padding:0.75rem; font-size:0.75rem; color:var(--kami-ink-muted);">' + details + '</td>' +
+          '</tr>';
       }).join('');
     } catch (e) {
       list.innerHTML = '<tr><td colspan="5" style="padding:2rem; text-align:center; color:#cf222e;">Failed to load logs.</td></tr>';

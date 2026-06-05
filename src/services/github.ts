@@ -18,10 +18,22 @@ export class GitHubService {
   private userAgent = 'cf-worker-edge-image-gateway';
 
   private async request(url: string, repo: ResolvedRepo, options: RequestInit = {}, env?: any, ctx?: any): Promise<Response> {
-    const headers = new Headers(options.headers);
-    headers.set('Authorization', `Bearer ${repo.token}`);
-    headers.set('Accept', 'application/vnd.github.v3+json');
-    headers.set('User-Agent', this.userAgent);
+    const headers = new Headers(options.headers || {});
+    
+    // Set Auth
+    if (!headers.has('Authorization')) {
+      headers.set('Authorization', `Bearer ${repo.token}`);
+    }
+    
+    // Set Accept (GitHub specific default if not provided)
+    if (!headers.has('Accept')) {
+      headers.set('Accept', 'application/vnd.github.v3+json');
+    }
+    
+    // Set User-Agent
+    if (!headers.has('User-Agent')) {
+      headers.set('User-Agent', this.userAgent);
+    }
 
     const res = await fetch(url, { ...options, headers });
 
@@ -37,26 +49,38 @@ export class GitHubService {
     return res;
   }
 
+  private encodePath(path: string): string {
+    return path.split('/').map(segment => encodeURIComponent(segment)).join('/');
+  }
+
   async fetchRaw(path: string, repo: ResolvedRepo, cfOptions?: RequestInitCfProperties, env?: any, ctx?: any): Promise<Response> {
-    const url = `https://api.github.com/repos/${repo.meta.owner}/${repo.meta.name}/contents/${path}?ref=${repo.meta.branch}`;
-    return this.request(url, repo, { method: 'GET', cf: cfOptions }, env, ctx);
+    const encodedPath = this.encodePath(path);
+    const url = `https://api.github.com/repos/${repo.meta.owner}/${repo.meta.name}/contents/${encodedPath}?ref=${repo.meta.branch}`;
+    return this.request(url, repo, { 
+      method: 'GET', 
+      headers: { 'Accept': 'application/vnd.github.v3.raw' },
+      cf: cfOptions 
+    }, env, ctx);
   }
 
   async fileExists(path: string, repo: ResolvedRepo, env?: any, ctx?: any): Promise<boolean> {
-    const url = `https://api.github.com/repos/${repo.meta.owner}/${repo.meta.name}/contents/${path}?ref=${repo.meta.branch}`;
+    const encodedPath = this.encodePath(path);
+    const url = `https://api.github.com/repos/${repo.meta.owner}/${repo.meta.name}/contents/${encodedPath}?ref=${repo.meta.branch}`;
     const res = await this.request(url, repo, { method: 'HEAD' }, env, ctx);
     return res.status === 200;
   }
 
   async getFile(path: string, repo: ResolvedRepo, env?: any, ctx?: any): Promise<GitHubItem | null> {
-    const url = `https://api.github.com/repos/${repo.meta.owner}/${repo.meta.name}/contents/${path}?ref=${repo.meta.branch}`;
+    const encodedPath = this.encodePath(path);
+    const url = `https://api.github.com/repos/${repo.meta.owner}/${repo.meta.name}/contents/${encodedPath}?ref=${repo.meta.branch}`;
     const res = await this.request(url, repo, {}, env, ctx);
     if (!res.ok) return null;
     return res.json();
   }
 
   async putFile(path: string, repo: ResolvedRepo, contentBase64: string, message: string, env?: any, ctx?: any): Promise<Response> {
-    const url = `https://api.github.com/repos/${repo.meta.owner}/${repo.meta.name}/contents/${path}`;
+    const encodedPath = this.encodePath(path);
+    const url = `https://api.github.com/repos/${repo.meta.owner}/${repo.meta.name}/contents/${encodedPath}`;
     return this.request(url, repo, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
@@ -69,7 +93,8 @@ export class GitHubService {
   }
 
   async deleteFile(path: string, repo: ResolvedRepo, sha: string, message: string, env?: any, ctx?: any): Promise<Response> {
-    const url = `https://api.github.com/repos/${repo.meta.owner}/${repo.meta.name}/contents/${path}`;
+    const encodedPath = this.encodePath(path);
+    const url = `https://api.github.com/repos/${repo.meta.owner}/${repo.meta.name}/contents/${encodedPath}`;
     return this.request(url, repo, {
       method: 'DELETE',
       headers: { 'Content-Type': 'application/json' },

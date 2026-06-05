@@ -24,11 +24,12 @@ wrangler login
 
 创建用于存储图片的 GitHub 仓库：
 
-1. 在 GitHub 上创建新仓库（建议为 Private）
+1. 在 GitHub 上创建新仓库（建议设为 Private 以保护数据隐私）
 2. 生成 Personal Access Token：
    - 访问 GitHub Settings → Developer settings → Personal access tokens → Fine-grained tokens
-   - 权限：`Contents` (Read & Write)
-   - 仓库：选择刚创建的仓库
+   - 权限选择：`Contents` (Read & Write)
+   - 仓库选择：仅限刚创建的仓库（最小权限原则）
+   - 设置合理的过期时间（建议 90 天）
 
 ### 4. 创建 Cloudflare KV Namespace
 
@@ -42,10 +43,10 @@ npx wrangler kv:namespace create "REPO_REGISTRY"
 # Bindings:
 #   [[kv_namespaces]]
 #   binding = "REPO_REGISTRY"
-#   id = "abc123..."
+#   id = "abc123def456..."
 ```
 
-将输出的 `id` 填入 `wrangler.toml`。
+将输出的 `id` 填入 `wrangler.toml` 的 `[[kv_namespaces]]` 配置中。
 
 ---
 
@@ -54,7 +55,7 @@ npx wrangler kv:namespace create "REPO_REGISTRY"
 ### 1. 克隆项目并安装依赖
 
 ```bash
-git clone https://github.com/your-username/edge-image-gateway.git
+git clone <repo-url>
 cd edge-image-gateway
 pnpm install
 ```
@@ -65,27 +66,32 @@ pnpm install
 copy wrangler.toml.example wrangler.toml
 ```
 
-编辑 `wrangler.toml`，填入 KV Namespace ID 和环境变量。
+编辑 `wrangler.toml`，填入：
+- KV Namespace ID
+- GitHub 用户名和仓库名
+- 其他可选环境变量
 
 ### 3. 设置 Secrets
 
 ```bash
-# GitHub Token (+ repo 读写权限)
+# GitHub Token（需要 repo 读写权限）
 npx wrangler secret put GITHUB_TOKEN
 
 # 签名密钥（用于分享链接和内部通信）
 npx wrangler secret put SIGN_SECRET
-# 以上命令会提示输入值
 
-# 可选: TOTP 管理员密钥
+# 可选：TOTP 管理员密钥
 npx wrangler secret put ADMIN_TOTP_SECRET
 
-# 可选: Cloudflare API Token (用于管理面板缓存清除)
+# 可选：Cloudflare API Token（用于管理面板缓存清除）
 npx wrangler secret put CF_API_TOKEN
 
-# 可选: 告警配置
+# 可选：告警配置
 npx wrangler secret put TELEGRAM_BOT_TOKEN
 npx wrangler secret put TELEGRAM_CHAT_ID
+
+# 可选：错误监控
+npx wrangler secret put SENTRY_DSN
 ```
 
 ### 4. 初始化 KV 配置
@@ -116,26 +122,26 @@ pnpm deploy
 # 输出示例:
 # Total Upload: xx KB
 # ...
-# Published: https://edge-image-gateway.your-account.workers.dev
+# Published: https://edge-image-gateway.{your-account}.workers.dev
 ```
 
 ### 6. 验证部署
 
 ```bash
-# 测试首页
-curl https://edge-image-gateway.your-account.workers.dev/
+# 测试健康检查
+curl https://{你的域名}/healthz
 
-# 测试上传 (需配置签名)
+# 测试首页
+curl https://{你的域名}/
+
+# 测试图片上传（需配置签名）
 curl -X POST \
   -F "file=@test.jpg" \
   -H "X-Signature: <generated-signature>" \
-  https://edge-image-gateway.your-account.workers.dev/upload
-
-# 测试图片访问
-curl https://edge-image-gateway.your-account.workers.dev/test.jpg
+  https://{你的域名}/upload
 
 # 测试管理面板
-# 浏览器打开 https://edge-image-gateway.your-account.workers.dev/admin
+# 浏览器打开 https://{你的域名}/admin
 ```
 
 ---
@@ -149,7 +155,7 @@ curl https://edge-image-gateway.your-account.workers.dev/test.jpg
 3. 如果使用 Images 订阅计划，可以直接使用
 4. Image Resizing 仅在代理模式（Proxied）下生效，需要你的域名通过 Cloudflare 代理
 
-> 注意：Image Resizing 需要 Cloudflare Pro/Business/Enterprise 订阅，或单独的 Images 订阅。
+> **注意：** Image Resizing 需要 Cloudflare Pro / Business / Enterprise 订阅，或单独的 Images 订阅。
 
 ---
 
@@ -157,11 +163,12 @@ curl https://edge-image-gateway.your-account.workers.dev/test.jpg
 
 推荐使用 Cloudflare Access (Zero Trust) 保护管理面板：
 
-1. 进入 Cloudflare Dashboard → Zero Trust → Access → Applications
-2. 添加自托管应用
-3. 设置应用域名为你的 Worker 域名
-4. 添加策略：允许指定邮箱或邮箱后缀访问 `/admin` 路径
-5. 在 `wrangler.toml` 中设置 `ADMIN_EMAILS`
+1. 进入 [Cloudflare Zero Trust Dashboard](https://one.dash.cloudflare.com/)
+2. 进入 **Access → Applications**，点击 **Add an application**
+3. 选择 **Self-hosted**
+4. 设置应用域名为你的 Worker 域名
+5. 添加策略：允许指定邮箱或邮箱后缀访问 `/admin` 路径
+6. 在 `wrangler.toml` 中设置 `ADMIN_EMAILS` 白名单
 
 如果不想使用 Cloudflare Access，可使用内置 TOTP 认证：
 
@@ -170,7 +177,7 @@ curl https://edge-image-gateway.your-account.workers.dev/test.jpg
 npx wrangler secret put ADMIN_TOTP_SECRET
 ```
 
-使用 TOTP 时，访问管理面板会提示输入 6 位验证码（可用 Google Authenticator / Authy 等 App 扫码）。
+使用 TOTP 时，访问管理面板会提示输入 6 位验证码（可用 Google Authenticator / Authy / 1Password 等 App 扫码添加）。
 
 ---
 
@@ -209,17 +216,39 @@ dataset = "edge_image_gateway"
 
 ---
 
+## 配置 Cron 触发器
+
+在 `wrangler.toml` 中添加 Cron 触发器以自动同步仓库统计：
+
+```toml
+[triggers]
+crons = ["0 */6 * * *"]  # 每 6 小时执行一次
+```
+
+---
+
+## 绑定自定义域名
+
+1. 在 Cloudflare Dashboard 中进入 Workers & Pages
+2. 选择你的 Worker，进入 **Triggers** 标签页
+3. 在 **Custom Domains** 中添加你的域名
+4. 确保域名 DNS 已通过 Cloudflare 代理（橙色云朵图标）
+
+---
+
 ## 生产环境部署清单
 
-- [ ] GitHub Token 已生成且有 `repo` 权限
+- [ ] GitHub Token 已生成且有 `repo` 权限（Fine-grained，最小权限）
 - [ ] KV Namespace 已创建并配置
 - [ ] 所有 Secrets 已通过 `wrangler secret put` 设置
-- [ ] Cloudflare Image Resizing 已启用
+- [ ] Cloudflare Image Resizing 已启用（如需要图片处理功能）
 - [ ] 域名已通过 Cloudflare 代理（DNS 设置为 Proxied）
 - [ ] Cloudflare Access 或 TOTP 已配置
 - [ ] 首次部署后已经初始化 KV 仓库注册表
+- [ ] Cron 触发器已配置（如需要自动同步统计）
 - [ ] Analytics Engine 数据集已创建（如使用）
 - [ ] Worker 路由已绑定到自定义域名（可选）
+- [ ] 已测试所有核心功能（上传、访问、管理面板）
 
 ---
 
@@ -231,6 +260,9 @@ pnpm deploy
 
 # 更新 Secrets
 npx wrangler secret put GITHUB_TOKEN
+
+# 更新环境变量（编辑 wrangler.toml 后重新部署）
+pnpm deploy
 ```
 
 ---
@@ -243,4 +275,40 @@ npx wrangler versions list
 
 # 回滚到指定版本
 npx wrangler rollback --version-id <version-id>
+```
+
+---
+
+## 故障排查
+
+### 部署失败
+
+| 问题 | 可能原因 | 解决方法 |
+|------|----------|----------|
+| `Authentication error` | wrangler 未登录 | 运行 `wrangler login` 重新登录 |
+| `KV namespace not found` | KV ID 不正确 | 检查 `wrangler.toml` 中的 KV ID |
+| `Script size exceeded` | Worker 代码过大 | 删除不必要的依赖，使用动态导入 |
+| `Secret not found` | Secret 未设置 | 运行 `wrangler secret put` 设置缺失的 Secret |
+
+### 运行时问题
+
+| 问题 | 可能原因 | 解决方法 |
+|------|----------|----------|
+| 图片返回 404 | GitHub 仓库中不存在 | 检查文件是否已上传到正确的仓库 |
+| 上传返回 401 | 签名认证未配置 | 检查 `ENABLE_SIGNATURE` 和 `X-Signature` 头 |
+| 管理面板无法访问 | 认证配置错误 | 检查 `ADMIN_EMAILS` 或 TOTP 配置 |
+| 图片处理不生效 | 未启用 Image Resizing | 检查 Cloudflare Image Resizing 是否已启用 |
+| GitHub API 限流 | 请求过于频繁 | 增加缓存 TTL，减少对 GitHub API 的直接请求 |
+
+### 查看日志
+
+```bash
+# 实时查看生产日志
+npx wrangler tail
+
+# 仅查看错误
+npx wrangler tail --status error
+
+# 通过 Cloudflare Dashboard
+# Workers & Pages → 你的 Worker → Logs
 ```

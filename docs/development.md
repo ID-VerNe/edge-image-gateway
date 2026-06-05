@@ -14,7 +14,7 @@
 
 ```bash
 # 克隆项目
-git clone https://github.com/your-username/edge-image-gateway.git
+git clone <repo-url>
 cd edge-image-gateway
 
 # 安装依赖
@@ -24,7 +24,7 @@ pnpm install
 copy wrangler.toml.example wrangler.toml
 
 # 编辑 wrangler.toml，填入必要的配置项
-# - GITHUB_USER / GITHUB_REPO / GITHUB_TOKEN（至少要配这些才能运行）
+# 至少要配置 GITHUB_USER、GITHUB_REPO、GITHUB_TOKEN
 ```
 
 ### 启动开发服务器
@@ -36,8 +36,10 @@ pnpm dev
 
 开发服务器会在 `http://localhost:8787` 启动，支持热更新。
 
-> 注意：本地开发时，GitHub API 调用是真实的，需要配置有效的 `GITHUB_TOKEN`。
-> KV 本地模拟使用 `wrangler dev --local`，数据存储在 `.wrangler/state/v3/kv` 目录中。
+> **注意：**
+> - 本地开发时，GitHub API 调用是真实的，需要配置有效的 `GITHUB_TOKEN`
+> - KV 本地模拟使用 `wrangler dev --local`，数据存储在 `.wrangler/state/v3/kv` 目录中
+> - 图片处理（Image Resizing）功能在本地开发环境中不可用，需部署后测试
 
 ---
 
@@ -46,13 +48,14 @@ pnpm dev
 ```
 edge-image-gateway/
 ├── src/
-│   ├── index.ts                  # 入口：应用初始化、路由注册
+│   ├── index.ts                  # 入口：应用初始化、路由注册、Cron 触发器
 │   ├── routes/
 │   │   ├── admin.ts              # 管理面板路由聚合（HTML + API）
 │   │   ├── image.ts              # 图片处理路由（GET、POST、DELETE、列表、分享）
 │   │   └── admin/
 │   │       ├── api/
 │   │       │   ├── audit.ts      # 审计日志 API
+│   │       │   ├── backfill.ts   # 路径索引回填
 │   │       │   ├── files.ts      # 文件管理主路由
 │   │       │   ├── repos.ts      # 仓库管理 API
 │   │       │   ├── stats.ts      # 统计 API
@@ -85,6 +88,7 @@ edge-image-gateway/
 │   │   └── signature.ts          # 签名认证 + 紧急熔断检查
 │   ├── services/
 │   │   ├── cron.ts               # 定时任务
+│   │   ├── database.ts           # KV 数据访问层
 │   │   ├── github.ts             # GitHub API 封装
 │   │   └── repoRouter.ts         # 多仓库路由引擎
 │   ├── utils/
@@ -94,16 +98,16 @@ edge-image-gateway/
 │   │   ├── imageProcessor.ts     # 图片处理
 │   │   ├── logger.ts             # 日志记录
 │   │   ├── mime.ts               # MIME 类型映射
-│   │   └── notifications.ts      # 通知推送（Telegram）
+│   │   ├── notifications.ts      # 通知推送（Telegram）
+│   │   └── r2Cache.ts            # R2 缓存集成
 │   └── types/
 │       └── env.d.ts              # 环境变量 Bindings 类型
 ├── scripts/
-│   └── sign.ts                   # 签名生成脚本（独立使用）
+│   ├── sign.ts                   # 签名生成脚本（独立使用）
+│   └── schema.sql                # 数据库 Schema 参考
 ├── tests/
 │   └── index.spec.ts             # 测试文件
 ├── docs/                         # 文档目录
-├── plan/                         # 规划文档
-├── wrangler.toml                 # Workers 配置
 ├── wrangler.toml.example         # 配置模板
 ├── package.json
 ├── tsconfig.json
@@ -126,31 +130,47 @@ edge-image-gateway/
 - **继续传递** — 调用 `next()` 交由下一个中间件处理
 - **修改上下文** — 在 `c.set()` 中设置变量，供后续中间件和 Handler 使用
 
-当前中间件顺序（按注册顺序执行）：
+**当前中间件顺序（按注册顺序执行）：**
 
-1. 速率限制（rateLimitGuard）— 全局，基于令牌桶算法
-2. 防盗链（refererGuard）— 全局，检查 Referer 白名单
-3. 签名认证 + 紧急熔断（signatureGuard）— 全局，验证签名并检查熔断状态
-4. 管理员认证（adminAuthGuard）— 仅 `/admin` 及 `/admin/*` 路径
+| 顺序 | 中间件 | 作用范围 | 说明 |
+|------|--------|----------|------|
+| 1 | `rateLimitGuard` | 全局 | 基于令牌桶算法，可配置 `RATE_LIMIT_PER_MIN` |
+| 2 | `refererGuard` | 全局 | 检查 Referer 白名单，支持通配符 |
+| 3 | `signatureGuard` | 全局 | 验证 HMAC 签名，检查紧急熔断状态 |
+| 4 | `adminAuthGuard` | `/admin` 及 `/admin/*` | Cloudflare Access 或 TOTP 认证 |
 
-> 紧急熔断并非独立中间件，是在 `signatureGuard` 内部通过检查 `EMERGENCY_LOCKDOWN` 环境变量或 KV 中的动态配置实现的快速返回机制。
+> 紧急熔断并非独立中间件，而是在 `signatureGuard` 内部通过检查 `EMERGENCY_LOCKDOWN` 环境变量或 KV 中的动态配置实现的快速返回机制。
 
 ### 路由设计
 
 ```typescript
 // src/index.ts — 入口
-const app = new Hono();
+const app = new Hono<AppEnvironment>();
+
+// 健康检查（无中间件，确保不受限流/防盗链影响）
+app.get('/healthz', (c) => { ... });
 
 // 全局中间件（按顺序注册）
-app.use("*", rateLimitGuard());
-app.use("*", refererGuard());
-app.use("*", signatureGuard());
+app.use('/*', rateLimitGuard);
+app.use('/*', refererGuard);
+app.use('/*', signatureGuard);
+
+// 全局错误处理
+app.onError((err, c) => { ... });
 
 // 管理面板路由（adminRouter 内部应用 adminAuthGuard）
-app.route("/admin", adminRouter);
+app.route('/admin', adminApp);
 
 // 图片处理路由（GET /:path、POST /upload、DELETE /:path 等）
-app.route("/", imageRouter);
+app.get('/*', handleImageRequest);
+
+// Cron 触发器
+export default {
+  fetch: app.fetch,
+  scheduled: async (event, env, ctx) => {
+    ctx.waitUntil(syncCapacity(env, ctx));
+  }
+};
 ```
 
 ---
@@ -163,43 +183,42 @@ app.route("/", imageRouter);
 # 运行所有测试
 pnpm test
 
-# 运行特定测试文件
-pnpm test -- tests/github.test.ts
-
-# 覆盖模式
-pnpm test -- --coverage
+# 运行特定测试文件（需文件存在）
+pnpm test -- tests/index.spec.ts
 
 # 监听模式（开发时使用）
 pnpm test -- --watch
+
+# 覆盖率报告
+pnpm test -- --coverage
 ```
 
 ### 测试框架
 
-项目使用 [Vitest](https://vitest.dev/) 作为测试框架，测试文件位于 `tests/` 目录。
+项目使用 [Vitest](https://vitest.dev/) 配合 `@cloudflare/vitest-pool-workers` 插件，在 Cloudflare Workers 模拟环境中运行测试。
 
-测试类型：
+**测试类型：**
 
-| 类型 | 说明 | 示例 |
-|------|------|------|
-| 单元测试 | 测试单个模块功能 | `tests/sign.test.ts` |
-| 集成测试 | 测试模块间交互 | `tests/routes.test.ts` |
-| 中间件测试 | 测试中间件行为 | `tests/middleware.test.ts` |
+| 类型 | 说明 | 适用场景 |
+|------|------|----------|
+| 单元测试 | 测试单个模块功能 | 工具函数、中间件逻辑 |
+| 集成测试 | 测试模块间交互 | 路由处理、API 端点 |
+| 中间件测试 | 测试中间件行为 | 认证、限流、防盗链 |
 
-### 测试辅助工具
+### 测试配置
 
 ```typescript
-import { createTestApp } from "../tests/helpers";
+// vitest.config.ts
+import { defineConfig } from 'vitest/config';
+import { cloudflareTest } from '@cloudflare/vitest-pool-workers';
 
-// 创建测试用应用实例
-const app = createTestApp({
-  GITHUB_USER: "test-user",
-  GITHUB_REPO: "test-repo",
-  SIGN_SECRET: "test-secret-key",
+export default defineConfig({
+  plugins: [
+    cloudflareTest({
+      wrangler: { configPath: './wrangler.toml' },
+    }),
+  ],
 });
-
-// 测试请求
-const res = await app.request("/test.jpg");
-expect(res.status).toBe(200);
 ```
 
 ---
@@ -207,10 +226,11 @@ expect(res.status).toBe(200);
 ## 构建
 
 ```bash
-# 构建生产版本
-pnpm build
+# 构建生产版本（由 wrangler 自动执行）
+npx wrangler deploy --dry-run
 
-# 构建产物在 dist/ 目录
+# 查看构建产物大小
+npx wrangler deploy --dry-run --outdir dist
 ```
 
 ---
@@ -223,14 +243,47 @@ pnpm build
 - **导入** — 使用 ES Module 语法
 - **类型** — 优先使用 interface 描述对象类型，type 用于联合类型和工具类型
 - **错误处理** — 使用 `try/catch` 包装异步操作，返回标准错误响应
+- **文件组织** — 按功能模块组织，路由放在 `routes/`，中间件放在 `middleware/`，服务放在 `services/`
 
 ### 类型定义
 
-核心类型定义在 `src/types/` 目录中：
+核心类型定义在 `src/types/env.d.ts` 中：
 
-| 类型文件 | 说明 |
-|----------|------|
-| `env.d.ts` | 环境变量 Bindings 类型 |
+```typescript
+interface AppEnvironment {
+  Bindings: {
+    // KV
+    REPO_REGISTRY: KVNamespace;
+    
+    // 必需变量
+    GITHUB_USER: string;
+    GITHUB_REPO: string;
+    GITHUB_BRANCH: string;
+    GITHUB_TOKEN: string;
+    SIGN_SECRET: string;
+    
+    // 可选变量
+    APP_TITLE?: string;
+    APP_DESCRIPTION?: string;
+    ALLOWED_REFERERS?: string;
+    CACHE_TTL_SECONDS?: string;
+    ENABLE_SIGNATURE?: string;
+    RATE_LIMIT_PER_MIN?: string;
+    ADMIN_EMAILS?: string;
+    ADMIN_TOTP_SECRET?: string;
+    EMERGENCY_LOCKDOWN?: string;
+    CF_ZONE_ID?: string;
+    CF_API_TOKEN?: string;
+    SENTRY_DSN?: string;
+    TELEGRAM_BOT_TOKEN?: string;
+    TELEGRAM_CHAT_ID?: string;
+    ANALYTICS_ENGINE?: AnalyticsEngineDataset;
+  };
+  Variables: {
+    // 中间件设置的上下文变量
+  };
+}
+```
 
 ---
 
@@ -241,13 +294,25 @@ pnpm build
 1. 启动开发服务器：`pnpm dev`
 2. 使用 `console.log` 或 `console.error` 输出，会显示在终端
 3. 使用 `c.get("var_name")` 获取中间件设置的上下文变量
+4. wrangler 会在终端输出请求日志
 
 ### 生产调试
 
-- **Sentry** — 配置 `SENTRY_DSN` 后，未捕获异常自动上报
-- **Telegram 告警** — 配置 `TELEGRAM_BOT_TOKEN` 后，热阈值触发告警
-- **Cloudflare Dashboard** — 查看 Workers 的实时日志和指标
-- **Analytics Engine** — 配置后可通过 SQL 查询请求指标
+| 方式 | 说明 |
+|------|------|
+| **Sentry** | 配置 `SENTRY_DSN` 后，未捕获异常自动上报 |
+| **Telegram 告警** | 配置 `TELEGRAM_BOT_TOKEN` 后，系统异常和热阈值触发告警 |
+| **Cloudflare Dashboard** | 查看 Workers 的实时日志（`wrangler tail`）和性能指标 |
+| **Analytics Engine** | 配置后可通过 SQL 查询详细的请求指标 |
+| **wrangler tail** | 实时查看生产环境日志：`npx wrangler tail` |
+
+```bash
+# 实时查看生产日志
+npx wrangler tail
+
+# 过滤特定状态码
+npx wrangler tail --status 500
+```
 
 ---
 
@@ -265,22 +330,26 @@ npx tsx scripts/sign.ts GET /test.jpg 1717200000
 npx tsx scripts/sign.ts POST /upload 1717200000 '{"file":"..."}'
 ```
 
+### schema.sql
+
+包含 KV 键的设计参考和数据结构说明，用于理解系统的数据模型。
+
 ---
 
 ## 发布流程
 
 ```bash
-# 1. 确保测试通过
-pnpm test
+# 1. 确保类型检查通过
+pnpm typecheck
 
-# 2. 确保构建通过
-pnpm build
+# 2. 确保测试通过
+pnpm test
 
 # 3. 部署到生产环境
 pnpm deploy
 
 # 4. 验证部署
-curl https://your-worker.workers.dev/
+curl https://{你的域名}/healthz
 ```
 
 ---
@@ -288,14 +357,16 @@ curl https://your-worker.workers.dev/
 ## 贡献指南
 
 1. Fork 项目并创建功能分支
-2. 确保所有现有测试通过
-3. 为新功能添加测试
-4. 提交 Pull Request 并附上详细说明
+2. 确保所有现有测试通过：`pnpm test`
+3. 确保类型检查通过：`pnpm typecheck`
+4. 为新功能添加测试
+5. 提交 Pull Request 并附上详细说明
 
 ### Pull Request 清单
 
 - [ ] 代码遵循项目的代码风格
 - [ ] 为新增功能编写了测试
 - [ ] 所有现有测试通过
+- [ ] 类型检查通过（`pnpm typecheck`）
 - [ ] 更新了相关文档
 - [ ] 没有在代码中硬编码任何秘密信息

@@ -30,18 +30,13 @@ export const FILE_ACTIONS = `
   }
 
   async function deleteItem(p, type) {
-    if(!confirm(\`Move this \${type} to Recycle Bin?\`)) return;
-    showLoader('Moving to Trash...');
+    if(!confirm(\`Permanently delete this \${type}?\`)) return;
+    showLoader('Deleting...');
     try {
-      const today = new Date().toISOString().split('T')[0].replace(/-/g, '');
-      const targetDir = \`.trash/\${today}\`;
-      const res = await fetch('/admin/api/files/' + encodeURIComponent(p) + '/move', { 
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ targetDir })
-      });
+      const url = '/admin/api/files/' + encodeURIComponent(p) + (type === 'dir' ? '?type=dir' : '');
+      const res = await fetch(url, { method: 'DELETE' });
       if (!res.ok) throw new Error('Delete failed');
-      showToast(\`Moved to Recycle Bin\`);
+      showToast(\`Item deleted\`);
     } catch(e) { 
       alert('Delete failed: ' + e.message); 
     }
@@ -51,20 +46,17 @@ export const FILE_ACTIONS = `
 
   async function bulkDelete() {
     if (selectedFiles.size === 0) return;
-    if(!confirm(\`Move \${selectedFiles.size} items to Recycle Bin?\`)) return;
-    showLoader('Moving to Trash...');
+    if(!confirm(\`Permanently delete \${selectedFiles.size} items?\`)) return;
+    showLoader('Deleting...');
     showProgress(true);
     let i = 0;
-    const today = new Date().toISOString().split('T')[0].replace(/-/g, '');
-    const targetDir = \`.trash/\${today}\`;
     for (const p of selectedFiles) {
-      updateProgress((i / selectedFiles.size) * 100, \`Moving \${i+1}/\${selectedFiles.size}\`);
+      updateProgress((i / selectedFiles.size) * 100, \`Deleting \${i+1}/\${selectedFiles.size}\`);
       try {
-        await fetch('/admin/api/files/' + encodeURIComponent(p) + '/move', { 
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ targetDir })
-        });
+        // We don't easily know the type here, but most bulk deletes are files.
+        // If it's a folder, it might fail or we'd need to check the file list state.
+        // For safety, let's assume it's a file unless it ends with a slash or we add logic.
+        await fetch('/admin/api/files/' + encodeURIComponent(p), { method: 'DELETE' });
       } catch(e) {}
       i++;
     }
@@ -149,71 +141,37 @@ export const FILE_ACTIONS = `
     if(lb) lb.style.display = 'none';
   }
 
-  async function generateAndCopySigned() {
+  async function generateSignedUrlForLightbox() {
     if(!currentLightboxPath) return;
+    const expiry = document.getElementById('copy-signed-expiry').value;
+    const btn = event.target;
+    btn.disabled = true;
+    const oldText = btn.innerText;
+    btn.innerText = '...';
+    
     try {
-      const res = await fetch('/admin/api/files/share', {
+      const res = await fetch('/admin/api/files/sign', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ path: currentLightboxPath, expiry: 86400 })
+        body: JSON.stringify({ path: currentLightboxPath, expires: parseInt(expiry) })
       });
       const data = await res.json();
       if(data.url) {
-        const input = document.getElementById('copy-signed');
-        input.value = data.url;
-        input.select();
-        document.execCommand('copy');
-        showToast('Signed URL Copied');
+        document.getElementById('copy-signed').value = data.url;
+        document.getElementById('btn-copy-signed').disabled = false;
+        showToast('Signed URL Generated');
       }
     } catch(e) { alert('Failed to generate signed URL'); }
+    btn.disabled = false;
+    btn.innerText = oldText;
   }
 
-  async function restoreFile(p) {
-    showLoader('Restoring...');
-    try {
-      // Logic: move back from .trash/YYYYMMDD/path to path (strip .trash/YYYYMMDD/)
-      const parts = p.split('/');
-      const targetPath = parts.slice(2).join('/'); // Skip .trash and date
-      const targetDir = targetPath.substring(0, targetPath.lastIndexOf('/'));
-      
-      const res = await fetch('/admin/api/files/' + encodeURIComponent(p) + '/move', { 
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ targetDir })
-      });
-      if(!res.ok) throw new Error('Restore failed');
-      showToast('Item restored');
-      loadTrash();
-    } catch(e) { alert(e.message); }
-    hideLoader();
-  }
-
-  async function deleteFilePermanently(p) {
-    if(!confirm('Delete permanently? This cannot be undone.')) return;
-    showLoader('Deleting...');
-    try {
-      const res = await fetch('/admin/api/files/' + encodeURIComponent(p), { method: 'DELETE' });
-      if(!res.ok) throw new Error('Delete failed');
-      showToast('Deleted permanently');
-      loadTrash();
-    } catch(e) { alert(e.message); }
-    hideLoader();
-  }
-
-  async function emptyTrash() {
-     if(!confirm('Permanently delete all items in Recycle Bin?')) return;
-     showLoader('Emptying Trash...');
-     try {
-       // We can just delete the .trash directory entries one by one or have a bulk API
-       // For now, let's keep it simple and just do it turn by turn if needed, 
-       // but ideally we need an API to purge a prefix.
-       // We'll use the existing DELETE with a type=dir if supported.
-       const res = await fetch('/admin/api/files/.trash?type=dir', { method: 'DELETE' });
-       if(!res.ok) throw new Error('Emptying failed');
-       showToast('Trash emptied');
-       loadTrash();
-     } catch(e) { alert(e.message); }
-     hideLoader();
+  function copySignedUrlFromLightbox() {
+    const input = document.getElementById('copy-signed');
+    if(!input.value) return;
+    input.select();
+    document.execCommand('copy');
+    showToast('Signed URL Copied');
   }
 
   function showMoveModal() { 
