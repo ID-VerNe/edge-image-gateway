@@ -16,6 +16,19 @@
 
 ---
 
+## 为什么选择 Edge Image Gateway？
+
+| 痛点 | 传统方案 | Edge Image Gateway |
+|------|----------|-------------------|
+| **存储成本** | 云对象存储按月付费，流量费高昂 | 利用 GitHub 免费私有仓库，零额外存储成本 |
+| **图片处理** | 需预生成多尺寸缩略图，存储冗余 | 边缘实时处理，按需缩放/裁剪/转格式 |
+| **访问速度** | 单地域服务器，跨区域延迟高 | Cloudflare 全球边缘网络，就近响应 |
+| **安全防护** | 需额外配置 WAF、CDN、鉴权服务 | 内置多层防护：限流、防盗链、HMAC 签名、熔断 |
+| **运维复杂度** | 数据库 + 对象存储 + CDN + 图片处理服务 | 一个 Worker 搞定全部，Serverless 免运维 |
+| **多站点管理** | 每个站点单独配置，管理碎片化 | 多仓库路由 + 路径前缀匹配，统一管理面板 |
+
+---
+
 ## 目录
 
 - [特性一览](#特性一览)
@@ -29,6 +42,7 @@
 - [CI/CD](#cicd)
 - [技术栈](#技术栈)
 - [文档目录](#文档目录)
+- [常见问题](#常见问题)
 - [贡献指南](#贡献指南)
 - [License](#license)
 
@@ -247,7 +261,35 @@ edge-image-gateway/
 
 ---
 
+## 管理面板
+
+系统内置完整的 SPA 管理后台，访问 `https://{你的域名}/admin` 即可使用。功能包括：
+
+- **文件管理** — 浏览、上传、删除、移动、搜索
+- **仓库管理** — 注册、状态管理、容量监控、迁移
+- **Token 管理** — 创建/吊销 API 令牌
+- **审计日志** — 查看所有管理操作记录
+- **缓存清除** — 全局或按文件清除边缘缓存
+
+详细说明见 [docs/admin-panel.md](docs/admin-panel.md)。
+
+---
+
 ## 安全
+
+Edge Image Gateway 采用深度防御策略，多层安全防护：
+
+```
+请求入口 → 速率限制 → 防盗链 → 签名认证+熔断 → 管理认证 → 响应清洗
+```
+
+| 层级 | 机制 | 说明 |
+|------|------|------|
+| L1 | IP 速率限制 + 404 封禁 | 令牌桶限流，恶意扫描自动封禁 |
+| L2 | Referer 防盗链 | 白名单域名校验，智能区分浏览器与工具 |
+| L3 | HMAC 签名 + 紧急熔断 | 写操作签名验证，一键熔断拒绝所有写入 |
+| L4 | 管理认证 | API Token / Cloudflare Access / TOTP 双因素 |
+| L5 | 响应安全头 | 清洗敏感头，添加 CSP / nosniff / DENY 等 |
 
 详细安全文档见 [docs/security.md](docs/security.md)。
 
@@ -268,6 +310,14 @@ edge-image-gateway/
 |--------|------|
 | `CLOUDFLARE_API_TOKEN` | Cloudflare API Token（需 Workers 部署权限） |
 | `CLOUDFLARE_ACCOUNT_ID` | Cloudflare 账户 ID |
+
+**工作流流程：**
+
+1. 检出代码并安装 pnpm
+2. 安装依赖（使用 pnpm lockfile 缓存）
+3. （可选）运行测试和类型检查
+4. 根据分支自动选择环境 (`production` / `preview`)
+5. 执行 `wrangler deploy` 部署
 
 > 提示：如需在 CI 中运行测试，可取消 `deploy.yml` 中测试步骤的注释。
 
@@ -294,6 +344,7 @@ edge-image-gateway/
 
 | 文档 | 说明 |
 |------|------|
+| [文档导航](docs/index.md) | 文档索引与快速导航 |
 | [使用指南](USAGE.md) | 日常使用、文件管理、签名生成、图片处理 |
 | [架构总览](docs/architecture-overview.md) | 系统架构全景图、请求生命周期、缓存体系 |
 | [架构说明](docs/architecture.md) | 模块架构、请求流程、数据流、KV 键设计 |
@@ -305,6 +356,49 @@ edge-image-gateway/
 | [多仓库管理](docs/multi-repo.md) | 多仓库路由、容量管理、仓库迁移 |
 | [开发指南](docs/development.md) | 本地开发、项目结构、测试与调试 |
 | [事故手册](docs/runbook.md) | 事故响应流程与紧急处置指南 |
+
+---
+
+## 常见问题
+
+<details>
+<summary><strong>支持哪些图片格式？</strong></summary>
+
+默认支持 `image/png`、`image/jpeg`、`image/webp`、`image/avif`、`image/gif`、`image/svg+xml`。可通过 KV 配置 `allowed_types` 扩展。
+</details>
+
+<details>
+<summary><strong>单文件大小限制是多少？</strong></summary>
+
+默认 25MB。可通过 KV 配置 `max_file_size` 调整（需在 GitHub API 限制范围内）。
+</details>
+
+<details>
+<summary><strong>图片处理功能需要额外付费吗？</strong></summary>
+
+是的，Cloudflare Image Resizing 需要 Pro / Business / Enterprise 订阅或单独的 Images 订阅。不启用图片处理参数时，图片作为原始文件直接返回，不产生额外费用。
+</details>
+
+<details>
+<summary><strong>GitHub 仓库设为 Private 安全吗？</strong></summary>
+
+安全。Worker 通过 GitHub Token 认证访问私有仓库，图片不会直接暴露给公网。所有访问都经过 Worker 的安全中间件过滤。
+</details>
+
+<details>
+<summary><strong>如何迁移到新仓库？</strong></summary>
+
+使用管理面板的仓库迁移功能，或手动通过 `git clone` 迁移。详见 [多仓库管理](docs/multi-repo.md#仓库迁移)。
+</details>
+
+<details>
+<summary><strong>遇到 GitHub API 限流怎么办？</strong></summary>
+
+1. 增加缓存 TTL 减少 API 调用
+2. 确保 R2 缓存 (L2) 正常工作
+3. 使用多仓库分担 API 配额
+4. 参考 [事故手册](docs/runbook.md#场景-5-github-rate-limit-耗尽)
+</details>
 
 ---
 

@@ -210,6 +210,58 @@ npx wrangler kv:key delete --binding=REPO_REGISTRY "repo::repo-old"
 - 建议在低流量时段进行大规模迁移
 - 迁移完成后需更新路径索引
 
+### 自动化迁移（推荐）
+
+系统内置了跨仓库迁移引擎（[src/services/repoMigration.ts](../src/services/repoMigration.ts)），支持通过管理面板或 API 发起自动化迁移：
+
+**通过管理面板：**
+
+1. 进入仓库管理页面
+2. 选择源仓库，点击「迁移」
+3. 选择目标仓库，确认迁移
+4. 系统自动执行：枚举文件 → 逐文件复制 → 更新索引 → 删除源文件
+5. 迁移进度可在管理面板实时查看
+
+**通过 API：**
+
+```bash
+# 启动迁移
+curl -X POST https://{你的域名}/admin/api/repos/{source_repo_id}/migrate \
+  -H "Authorization: Bearer <token>" \
+  -H "Content-Type: application/json" \
+  -d '{"targetRepoId": "repo-new"}'
+
+# 查看迁移状态
+curl https://{你的域名}/admin/api/repos/migrations/{jobId} \
+  -H "Authorization: Bearer <token>"
+
+# 恢复暂停的迁移
+curl -X POST https://{你的域名}/admin/api/repos/migrations/{jobId}/resume \
+  -H "Authorization: Bearer <token>"
+```
+
+**自动化迁移特性：**
+
+| 特性 | 说明 |
+|------|------|
+| 断点续传 | 遇到 API 速率限制时自动暂停，下次 Cron 触发时恢复 |
+| 完整性校验 | 每个文件迁移后验证 SHA 哈希一致 |
+| 原子更新 | 索引更新在文件迁移成功后原子执行 |
+| 状态追踪 | 完整记录迁移进度、已处理文件数、失败文件列表 |
+| 回滚支持 | 迁移失败时自动保留源文件，支持手动回滚 |
+
+**迁移状态机：**
+
+```
+pending → running → completed
+                ↘ paused → running (resume)
+                ↘ failed  → running (retry)
+```
+
+### 手动迁移（Git 方式）
+
+适用于需要自定义迁移逻辑或大规模数据搬移的场景：
+
 ---
 
 ## 多 Token 管理
@@ -288,3 +340,11 @@ A: 不支持。系统始终只有一个"当前写仓库"，所有上传都写入
 
 **Q: 仓库容量上限如何设置？**
 A: 创建仓库时设置 `capacityLimitBytes`，单位为字节。例如 5GB = `5368709120`。
+
+---
+
+## 延伸阅读
+
+- [架构总览](architecture-overview.md) — 多仓库路由引擎的完整架构
+- [架构说明](architecture.md) — 读取/写入路由的详细数据流
+- [文档导航](index.md) — 所有文档的快速索引

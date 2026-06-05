@@ -134,3 +134,71 @@
 | GitHub Settings | 管理 Token、查看 API 用量 |
 | Telegram 告警频道 | 实时接收系统告警（如已配置） |
 | Sentry Dashboard | 查看错误追踪和堆栈信息（如已配置） |
+
+---
+
+## 场景 11: 突然出现大面积 403
+
+- **症状**: 大量请求返回 403，但 `/healthz` 正常。
+- **处置**:
+  1. 检查 `ALLOWED_REFERERS` 配置是否被错误修改。
+  2. 检查 `ENABLE_SIGNATURE` 是否被意外开启。
+  3. 检查 `EMERGENCY_LOCKDOWN` 是否被误开启。
+  4. 查看 `wrangler tail` 日志确认具体中间件拦截原因。
+- **验证**: 用 `curl` 发送测试请求，逐层排查中间件。
+
+---
+
+## 场景 12: 管理面板无法登录
+
+- **症状**: 访问 `/admin` 返回 401 或无限重定向。
+- **处置**:
+  1. **Cloudflare Access 模式**：检查 Access 应用的域名配置是否正确，策略是否包含你的邮箱。
+  2. **TOTP 模式**：检查 `ADMIN_TOTP_SECRET` 是否正确设置，尝试重新生成 TOTP 密钥。
+  3. 检查 `ADMIN_EMAILS` 白名单是否包含你的邮箱。
+  4. 检查 `wrangler tail` 日志中 `adminAuth` 相关的错误信息。
+- **临时绕过**: 在 `wrangler.toml` 中设置 `ADMIN_EMAILS` 包含你的邮箱并重新部署。
+
+---
+
+## 场景 13: 图片上传后访问 404
+
+- **症状**: 上传成功返回 URL，但访问该 URL 返回 404。
+- **可能原因**:
+  | 原因 | 排查方法 |
+  |------|----------|
+  | 路径索引未写入 | 检查 D1 `paths` 表是否有该路径记录 |
+  | 路由规则未匹配 | 检查 `route::read_rules` 配置 |
+  | GitHub 仓库中文件不存在 | 直接在 GitHub 仓库中检查文件是否存在 |
+  | 缓存了旧的 404 响应 | 通过管理面板清除缓存 |
+- **处置**:
+  1. 访问 `/healthz` 确认仓库状态正常。
+  2. 在管理面板中执行「同步统计」。
+  3. 如索引丢失，调用 `/admin/api/backfill` 回填路径索引。
+
+---
+
+## 场景 14: Cron 触发但未执行
+
+- **症状**: `wrangler.toml` 中配置了 Cron，但容量统计未更新。
+- **处置**:
+  1. 检查 `wrangler.toml` 中 `[triggers]` 配置的 cron 表达式是否正确。
+  2. 检查部署时是否使用了正确的环境（`--env production`）。
+  3. 查看 Worker 日志中的 `cron` 事件：`pnpm exec wrangler tail --search cron`。
+  4. 检查 Cron 触发器的状态：`pnpm exec wrangler cron list --env production`。
+- **验证**: 手动触发一次同步：`POST /admin/api/repos/:id/sync`。
+
+---
+
+## 场景 15: 图片处理（Resize）不生效
+
+- **症状**: 添加 `?w=200` 等参数后，图片尺寸未变化。
+- **可能原因**:
+  1. Cloudflare Image Resizing 未启用（需 Pro+ 订阅）。
+  2. 域名未通过 Cloudflare 代理（DNS 设为 DNS Only）。
+  3. 请求经过了其他 CDN 或代理层。
+- **处置**:
+  1. 在 Cloudflare Dashboard → Speed → Optimization 中检查 Image Resizing 是否已启用。
+  2. 确认域名 DNS 的云朵图标为橙色（Proxied）。
+  3. 确认请求直接到达 Workers，未被其他 CDN 拦截。
+- **降级行为**: 如果 Image Resizing 不可用，Worker 会返回原始图片，不会报错。

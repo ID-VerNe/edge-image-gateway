@@ -271,3 +271,83 @@ CACHE_TTL_SECONDS = "86400"
 ```
 
 > 注意：`ALLOWED_REFERERS` 设为空字符串时，只允许空 Referer 的请求（如直接访问、App 请求），拒绝所有带 Referer 的外部引用。
+
+---
+
+## 配置校验
+
+系统启动时会自动执行 Zod 配置校验（[src/utils/configCheck.ts](../src/utils/configCheck.ts)），确保关键配置项正确设置。
+
+### 校验项
+
+| 校验项 | 规则 | 说明 |
+|--------|------|------|
+| `GITHUB_USER` | 非空字符串 | GitHub 用户名或组织名 |
+| `GITHUB_REPO` | 非空字符串 | GitHub 仓库名 |
+| `GITHUB_TOKEN` | 非空字符串 | 至少 10 个字符 |
+| `SIGN_SECRET` | 非空字符串 | 至少 16 个字符 |
+| `ENVIRONMENT` | `production` / `development` | 用于控制错误堆栈是否暴露 |
+| `RATE_LIMIT_PER_MIN` | 正整数 | 每分钟请求限制 |
+
+### 校验结果
+
+访问 `/healthz` 端点可查看配置校验结果：
+
+```json
+{
+  "ok": true,
+  "config": "valid",
+  "env_configured": true,
+  "features": {
+    "signature": true,
+    "referer_protection": true
+  }
+}
+```
+
+若 `config` 为 `invalid`，检查 Worker 日志获取具体的校验失败原因。
+
+### 配置优先级
+
+系统配置有多层来源，优先级从高到低：
+
+1. **KV 动态配置**（运行时修改，即时生效）
+2. **环境变量 Secret**（通过 `wrangler secret put` 设置）
+3. **环境变量 vars**（在 `wrangler.toml` 中设置）
+4. **代码默认值**
+
+> 例如：`EMERGENCY_LOCKDOWN` 同时存在于 KV (`kv_config::emergency_lockdown`) 和环境变量中时，KV 中的值优先生效。
+
+---
+
+## 配置故障排查
+
+### 常见配置问题
+
+| 问题 | 症状 | 解决方法 |
+|------|------|----------|
+| `SIGN_SECRET` 太短 | `/healthz` 返回 `config: invalid` | 使用至少 16 字符的随机字符串 |
+| `GITHUB_TOKEN` 未设置 | 上传返回 401 | 运行 `wrangler secret put GITHUB_TOKEN` |
+| KV Namespace ID 错误 | 路由规则不生效 | 检查 `wrangler.toml` 中 `[[kv_namespaces]]` 的 `id` |
+| D1 database_id 错误 | 管理面板数据为空 | 检查 `wrangler.toml` 中 `[[d1_databases]]` 的 `database_id` |
+| `ALLOWED_REFERERS` 配置错误 | 所有带 Referer 的请求返回 403 | 检查域名格式，确保不含 `http://` 之外的协议前缀差异 |
+| 环境变量未生效 | 修改后行为不变 | 重新部署：`pnpm exec wrangler deploy --env production` |
+
+### 验证配置的命令
+
+```bash
+# 查看当前 Secrets 列表
+npx wrangler secret list
+
+# 查看当前 KV 配置
+npx wrangler kv:key get --binding=REPO_REGISTRY "kv_config::emergency_lockdown"
+
+# 查看当前路由规则
+npx wrangler kv:key get --binding=REPO_REGISTRY "route::read_rules"
+
+# 查看当前写仓库
+npx wrangler kv:key get --binding=REPO_REGISTRY "route::current_write"
+
+# 健康检查
+curl https://{你的域名}/healthz
+```

@@ -15,6 +15,9 @@
 - [命令行签名工具](#命令行签名工具)
 - [图片处理参数](#图片处理参数)
 - [配置参考](#配置参考)
+- [实用示例](#实用示例)
+- [多仓库路由](#多仓库路由)
+- [常见问题](#常见问题)
 
 ---
 
@@ -309,3 +312,106 @@ A: 首次访问会从 GitHub 拉取并缓存，后续请求由 Cloudflare 边缘
 
 **Q: 如何更换存储仓库？**
 A: 在管理面板的"系统设置"中添加新仓库，设置为写目标，旧仓库文件可迁移。
+
+---
+
+## 实用示例
+
+### 使用 PicGo 上传
+
+[PicGo](https://molunerfinn.com/PicGo/) 是流行的图床客户端，可通过自定义 API 集成：
+
+1. 在 PicGo 中选择「自定义 Web 图床」
+2. API 地址：`https://{你的域名}/admin/api/upload`
+3. POST 参数名：`file`
+4. 自定义请求头：`Authorization: Bearer <你的API令牌>`
+5. 自定义返回路径：`["url"]`
+
+### 使用 Typora 自动上传
+
+[Typora](https://typora.io/) 支持图片自动上传到自定义图床：
+
+1. 打开 Typora → 偏好设置 → 图片
+2. 上传服务选择「Custom Command」
+3. 命令填写：
+   ```bash
+   curl -s -X POST https://{你的域名}/admin/api/upload \
+     -H "Authorization: Bearer <你的API令牌>" \
+     -F "file=@$1" | jq -r '.url'
+   ```
+
+### 批量上传脚本
+
+```bash
+#!/bin/bash
+# 批量上传目录中的所有图片
+for file in ./images/*.{jpg,png,webp,gif}; do
+  [ -f "$file" ] || continue
+  echo "上传: $file"
+  curl -s -X POST "https://{你的域名}/admin/api/upload" \
+    -H "Authorization: Bearer <你的API令牌>" \
+    -F "file=@$file" | jq -r '.url'
+done
+```
+
+### 在 Markdown 中使用
+
+```markdown
+<!-- 基本引用 -->
+![图片](https://{你的域名}/images/photo.jpg)
+
+<!-- 响应式图片（HTML） -->
+<img src="https://{你的域名}/images/photo.jpg" 
+     srcset="https://{你的域名}/images/photo.jpg?w=400 400w,
+             https://{你的域名}/images/photo.jpg?w=800 800w"
+     sizes="(max-width: 600px) 400px, 800px"
+     alt="响应式图片">
+
+<!-- 指定格式 -->
+<picture>
+  <source srcset="https://{你的域名}/images/photo.jpg?format=avif" type="image/avif">
+  <source srcset="https://{你的域名}/images/photo.jpg?format=webp" type="image/webp">
+  <img src="https://{你的域名}/images/photo.jpg" alt="渐进增强图片">
+</picture>
+```
+
+### 使用 Python 上传
+
+```python
+import requests
+
+def upload_image(file_path, api_url, token):
+    with open(file_path, 'rb') as f:
+        response = requests.post(
+            f"{api_url}/admin/api/upload",
+            headers={"Authorization": f"Bearer {token}"},
+            files={"file": f}
+        )
+    return response.json()
+
+result = upload_image("photo.jpg", "https://{你的域名}", "<token>")
+print(f"URL: {result['fullUrl']}")
+```
+
+### 使用 Node.js 上传
+
+```javascript
+import { readFile } from 'node:fs/promises';
+import { Blob } from 'node:buffer';
+
+async function uploadImage(filePath, apiUrl, token) {
+  const buffer = await readFile(filePath);
+  const form = new FormData();
+  form.append('file', new Blob([buffer]), filePath.split('/').pop());
+  
+  const res = await fetch(`${apiUrl}/admin/api/upload`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}` },
+    body: form,
+  });
+  return res.json();
+}
+
+const result = await uploadImage('photo.jpg', 'https://{你的域名}', '<token>');
+console.log('URL:', result.fullUrl);
+```

@@ -388,3 +388,11 @@ src/
 | **测试** | Vitest + Miniflare |
 | **部署** | Wrangler CLI |
 | **包管理** | pnpm |
+
+---
+
+## 13. 延伸阅读
+
+- [架构说明（模块详解）](architecture.md) — 核心数据流、D1/KV 一致性设计、KV 键模型
+- [文档导航](index.md) — 所有文档的快速索引
+- [事故手册](runbook.md) — 10+ 类常见事故的应急处置步骤
