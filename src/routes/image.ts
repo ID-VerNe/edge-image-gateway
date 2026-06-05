@@ -30,11 +30,73 @@ export const handleImageRequest = async (c: Context<AppEnvironment>) => {
           <meta name="viewport" content="width=device-width, initial-scale=1.0">
           <link rel="icon" type="image/png" href="/favicon.png">
           <link rel="shortcut icon" href="/favicon.ico">
+          <link rel="preconnect" href="https://fonts.googleapis.com">
+          <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+          <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&display=swap" rel="stylesheet">
+          <style>
+            :root {
+              --bg: #F8FAFC;
+              --text-1: #0F172A;
+              --text-2: #64748B;
+              --primary: #4F46E5;
+              --radius: 12px;
+            }
+            @media (prefers-color-scheme: dark) {
+              :root {
+                --bg: #0B0E14;
+                --text-1: #F8FAFC;
+                --text-2: #94A3B8;
+              }
+            }
+            body { 
+              font-family: 'Inter', -apple-system, sans-serif; 
+              display: flex; 
+              justify-content: center; 
+              align-items: center; 
+              height: 100vh; 
+              margin: 0; 
+              background-color: var(--bg);
+              color: var(--text-1);
+              -webkit-font-smoothing: antialiased;
+            }
+            .container { 
+              text-align: center; 
+              padding: 2rem;
+              max-width: 480px;
+            }
+            h1 { 
+              font-size: 3rem; 
+              font-weight: 800;
+              margin-bottom: 1rem; 
+              letter-spacing: -0.04em;
+              background: linear-gradient(135deg, var(--text-1) 0%, var(--primary) 100%);
+              -webkit-background-clip: text;
+              -webkit-text-fill-color: transparent;
+            }
+            p { 
+              font-size: 1.25rem; 
+              color: var(--text-2);
+              line-height: 1.6;
+              font-weight: 400;
+            }
+            .badge {
+              display: inline-block;
+              padding: 0.5rem 1rem;
+              background: var(--primary);
+              color: white;
+              border-radius: 999px;
+              font-size: 0.875rem;
+              font-weight: 600;
+              margin-bottom: 2rem;
+              box-shadow: 0 4px 12px rgba(79, 70, 229, 0.2);
+            }
+          </style>
         </head>
-        <body style="font-family: sans-serif; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; background-color: #f6f8fa;">
-          <div style="text-align: center;">
-            <h1 style="font-size: 2.5rem; margin-bottom: 0.5rem; color: #1f2328;">${title}</h1>
-            <p style="font-size: 1.125rem; color: #636c76;">${desc}</p>
+        <body>
+          <div class="container">
+            <div class="badge">Edge Image Gateway</div>
+            <h1>${title}</h1>
+            <p>${desc}</p>
           </div>
         </body>
       </html>
