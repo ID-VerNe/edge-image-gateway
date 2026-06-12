@@ -41,7 +41,7 @@ export const rateLimitGuard = async (c: Context<AppEnvironment>, next: Next) => 
   }
 
   // 2. Local Rate Limit Check (In-memory is much cheaper than KV)
-  const rateLimit = parseInt(c.env.RATE_LIMIT_PER_MIN || '120', 10);
+  const rateLimit = parseInt(c.env.RATE_LIMIT_PER_MIN || '600', 10); // Increased default for icon-heavy sites
   const rlKey = `${ip}::${minuteBucket}`;
   
   const record = localCache.get(rlKey);

@@ -378,6 +378,6 @@ curl https://{你的域名}/healthz
 
 ## 延伸阅读
 
-- [架构总览](architecture-overview.md) — 系统全景、请求生命周期、缓存体系
-- [架构说明](architecture.md) — 模块设计、数据流、D1/KV 一致性
-- [文档导航](index.md) — 所有文档的快速索引
+- [架构总览](../architecture/overview.md) — 系统全景、请求生命周期、缓存体系
+- [架构说明](../architecture/details.md) — 模块设计、数据流、D1/KV 一致性
+- [文档导航](../index.md) — 所有文档的快速索引

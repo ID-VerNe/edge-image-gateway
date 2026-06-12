@@ -38,8 +38,11 @@ uploadApi.post('/', async (c) => {
 
     const hash = await sha256(arrayBuffer);
 
+    // Check deduplication policy (default: reuse existing, 'allow' to create new copy)
+    const dedupePolicy = body['dedupe'] as string || 'reuse'; // 'reuse' or 'allow'
+
     // Phase 3: D1 primary for deduplication
-    if (c.env.DB) {
+    if (dedupePolicy === 'reuse' && c.env.DB) {
       try {
         const existing: any = await c.env.DB.prepare(`SELECT path, repo_id as repoId FROM paths WHERE hash = ?`).bind(hash).first();
         if (existing) {
@@ -59,7 +62,7 @@ uploadApi.post('/', async (c) => {
     }
 
     // Fallback to KV for deduplication (transition phase)
-    if (c.env.REPO_REGISTRY) {
+    if (dedupePolicy === 'reuse' && c.env.REPO_REGISTRY) {
       const existing = await c.env.REPO_REGISTRY.get(`hash::${hash}`, 'json');
       if (existing) {
         const meta = existing as any;

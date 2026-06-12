@@ -295,7 +295,7 @@ SENTRY_DSN = "https://xxx@xxx.ingest.us.sentry.io/xxx"
 
 ## 多仓库路由
 
-如果配置了多个 GitHub 仓库，上传时会根据仓库剩余容量自动路由到合适的仓库。详见 [多仓库管理](docs/multi-repo.md)。
+如果配置了多个 GitHub 仓库，上传时会根据仓库剩余容量自动路由到合适的仓库。详见 [多仓库管理](docs/features/multi-repo.md)。
 
 ---
 

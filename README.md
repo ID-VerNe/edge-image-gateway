@@ -113,7 +113,7 @@
                     └──────────────────────┘
 ```
 
-详细架构说明见 [docs/architecture-overview.md](docs/architecture-overview.md)（全景图）和 [docs/architecture.md](docs/architecture.md)（模块详解）。
+详细架构说明见 [docs/architecture/overview.md](docs/architecture/overview.md)（全景图）和 [docs/architecture/details.md](docs/architecture/details.md)（模块详解）。
 
 ---
 
@@ -141,7 +141,7 @@ pnpm install
 copy wrangler.toml.example wrangler.toml
 
 # 编辑 wrangler.toml，填入你的环境变量及 D1/R2/KV 绑定
-# 详见 docs/configuration.md
+# 详见 docs/deployment/configuration.md
 
 # 初始化 D1 数据库
 pnpm exec wrangler d1 execute <DB_ID> --file=./scripts/schema.sql
@@ -176,7 +176,7 @@ pnpm dev
 pnpm exec wrangler deploy --env production
 ```
 
-详细部署指南见 [docs/deployment.md](docs/deployment.md)。
+详细部署指南见 [docs/deployment/deployment.md](docs/deployment/deployment.md)。
 
 ---
 
@@ -252,13 +252,13 @@ edge-image-gateway/
 | `APP_TITLE` | 否 | 明文 | 首页展示标题，默认 `Edge Image Gateway` |
 | `APP_DESCRIPTION` | 否 | 明文 | 首页展示描述 |
 
-完整配置说明见 [docs/configuration.md](docs/configuration.md)。
+完整配置说明见 [docs/deployment/configuration.md](docs/deployment/configuration.md)。
 
 ---
 
 ## API 总览
 
-详细 API 文档见 [docs/api-reference.md](docs/api-reference.md)。
+详细 API 文档见 [docs/features/api-reference.md](docs/features/api-reference.md)。
 
 ---
 
@@ -272,7 +272,7 @@ edge-image-gateway/
 - **审计日志** — 查看所有管理操作记录
 - **缓存清除** — 全局或按文件清除边缘缓存
 
-详细说明见 [docs/admin-panel.md](docs/admin-panel.md)。
+详细说明见 [docs/features/admin-panel.md](docs/features/admin-panel.md)。
 
 ---
 
@@ -292,7 +292,7 @@ Edge Image Gateway 采用深度防御策略，多层安全防护：
 | L4 | 管理认证 | API Token / Cloudflare Access / TOTP 双因素 |
 | L5 | 响应安全头 | 清洗敏感头，添加 CSP / nosniff / DENY 等 |
 
-详细安全文档见 [docs/security.md](docs/security.md)。
+详细安全文档见 [docs/security/security.md](docs/security/security.md)。
 
 ---
 
@@ -347,16 +347,17 @@ Edge Image Gateway 采用深度防御策略，多层安全防护：
 |------|------|
 | [文档导航](docs/index.md) | 文档索引与快速导航 |
 | [使用指南](USAGE.md) | 日常使用、文件管理、签名生成、图片处理 |
-| [架构总览](docs/architecture-overview.md) | 系统架构全景图、请求生命周期、缓存体系 |
-| [架构说明](docs/architecture.md) | 模块架构、请求流程、数据流、KV 键设计 |
-| [管理面板](docs/admin-panel.md) | 管理面板功能、认证方式、前端技术实现 |
-| [配置说明](docs/configuration.md) | 环境变量、KV 动态配置、多环境部署 |
-| [部署指南](docs/deployment.md) | 从零部署到 Cloudflare Workers 的完整步骤 |
-| [API 参考](docs/api-reference.md) | 所有 API 端点详细说明 |
-| [安全指南](docs/security.md) | 安全机制、认证鉴权、最佳实践 |
-| [多仓库管理](docs/multi-repo.md) | 多仓库路由、容量管理、仓库迁移 |
-| [开发指南](docs/development.md) | 本地开发、项目结构、测试与调试 |
-| [事故手册](docs/runbook.md) | 事故响应流程与紧急处置指南 |
+| [架构总览](docs/architecture/overview.md) | 系统架构全景图、请求生命周期、缓存体系 |
+| [架构说明](docs/architecture/details.md) | 模块架构、请求流程、数据流、KV 键设计 |
+| [管理面板](docs/features/admin-panel.md) | 管理面板功能、认证方式、前端技术实现 |
+| [配置说明](docs/deployment/configuration.md) | 环境变量、KV 动态配置、多环境部署 |
+| [部署指南](docs/deployment/deployment.md) | 从零部署到 Cloudflare Workers 的完整步骤 |
+| [API 参考](docs/features/api-reference.md) | 所有 API 端点详细说明 |
+| [安全指南](docs/security/security.md) | 安全机制、认证鉴权、最佳实践 |
+| [多仓库管理](docs/features/multi-repo.md) | 多仓库路由、容量管理、仓库迁移 |
+| [开发指南](docs/development/development.md) | 本地开发、项目结构、测试与调试 |
+| [接入指南](docs/integration/index.md) | 第三方应用集成：Python / TypeScript / PHP |
+| [事故手册](docs/security/runbook.md) | 事故响应流程与紧急处置指南 |
 
 ---
 
@@ -389,7 +390,7 @@ Edge Image Gateway 采用深度防御策略，多层安全防护：
 <details>
 <summary><strong>如何迁移到新仓库？</strong></summary>
 
-使用管理面板的仓库迁移功能，或手动通过 `git clone` 迁移。详见 [多仓库管理](docs/multi-repo.md#仓库迁移)。
+使用管理面板的仓库迁移功能，或手动通过 `git clone` 迁移。详见 [多仓库管理](docs/features/multi-repo.md#仓库迁移)。
 </details>
 
 <details>
@@ -398,7 +399,7 @@ Edge Image Gateway 采用深度防御策略，多层安全防护：
 1. 增加缓存 TTL 减少 API 调用
 2. 确保 R2 缓存 (L2) 正常工作
 3. 使用多仓库分担 API 配额
-4. 参考 [事故手册](docs/runbook.md#场景-5-github-rate-limit-耗尽)
+4. 参考 [事故手册](docs/security/runbook.md#场景-5-github-rate-limit-耗尽)
 </details>
 
 ---
@@ -410,7 +411,7 @@ Edge Image Gateway 采用深度防御策略，多层安全防护：
 3. 为新功能添加测试
 4. 提交 PR 并附上详细说明
 
-更多细节见 [docs/development.md](docs/development.md)。
+更多细节见 [docs/development/development.md](docs/development/development.md)。
 
 ---
 

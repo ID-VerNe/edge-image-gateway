@@ -345,6 +345,6 @@ A: 创建仓库时设置 `capacityLimitBytes`，单位为字节。例如 5GB = `
 
 ## 延伸阅读
 
-- [架构总览](architecture-overview.md) — 多仓库路由引擎的完整架构
-- [架构说明](architecture.md) — 读取/写入路由的详细数据流
-- [文档导航](index.md) — 所有文档的快速索引
+- [架构总览](../architecture/overview.md) — 多仓库路由引擎的完整架构
+- [架构说明](../architecture/details.md) — 读取/写入路由的详细数据流
+- [文档导航](../index.md) — 所有文档的快速索引
