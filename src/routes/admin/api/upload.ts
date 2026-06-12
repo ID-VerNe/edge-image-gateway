@@ -73,13 +73,17 @@ uploadApi.post('/', async (c) => {
       }
     }
 
-    const targetDir = typeof body['targetDir'] === 'string' ? body['targetDir'].replace(/^\/+|\/+$/g, '') : '';
+    // Auto-apply pathPrefix from token if present
+    const tokenInfo = c.get('tokenInfo') as any;
+    let targetDir = typeof body['targetDir'] === 'string' ? body['targetDir'].replace(/^\/+|\/+$/g, '') : '';
+    if (!targetDir && tokenInfo?.pathPrefix) {
+      targetDir = tokenInfo.pathPrefix.replace(/^\/+|\/+$/g, '');
+    }
+
     let ext = file.name.split('.').pop() || 'png';
     ext = ext.toLowerCase();
-    
+
     const baseName = file.name.replace(/\.[^/.]+$/, "");
-    // Generate a unique suffix: short hash (4 chars) + timestamp-based ID (6 chars)
-    // This provides a high degree of uniqueness even for the same filename uploaded at different times
     const ts = Date.now().toString(36).slice(-6);
     const fileName = `${baseName}-${hash.slice(0, 4)}${ts}.${ext}`;
     const path = targetDir ? `${targetDir}/${fileName}` : fileName;
