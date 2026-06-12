@@ -342,11 +342,10 @@ mutateApi.get('/migrations/:id', async (c) => {
   return c.json(task);
 });
 
-mutateApi.post('/*/move', async (c) => {
+mutateApi.post('/:path{.+}/move', async (c) => {
   try {
     const body = await c.req.json() as any;
-    const reqUrl = new URL(c.req.url);
-    const sourcePath = decodeURIComponent(reqUrl.pathname.replace('/admin/api/files/', '').replace('/move', '')).replace(/^\/+|\/+$/g, '');
+    const sourcePath = c.req.param('path');
     const targetDir = (body.targetDir || '').replace(/^\/+|\/+$/g, '');
     const fileName = sourcePath.split('/').pop() || '';
     const targetPath = targetDir ? `${targetDir}/${fileName}` : fileName;
