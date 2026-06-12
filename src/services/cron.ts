@@ -2,10 +2,9 @@ import { Bindings } from '../types/env';
 import { listAllRepos } from './repoRouter';
 import { alertThrottled } from '../utils/notifications';
 import { RepoMigrationJob, migrateRepo } from './repoMigration';
+import { dbService } from './database';
 
 export const syncCapacity = async (env: Bindings, ctx?: any) => {
-  if (!env.REPO_REGISTRY) throw new Error('KV not configured');
-
   const repos = await listAllRepos(env);
   const results = [];
 
@@ -25,19 +24,17 @@ export const syncCapacity = async (env: Bindings, ctx?: any) => {
 
     if (res.ok) {
       const data: any = await res.json();
-      // GitHub API returns size in KB
       const actualSizeBytes = (data.size || 0) * 1024;
 
-      if (repo.sizeBytes !== actualSizeBytes) {
+      if (repo.sizeBytes !== actualSizeBytes && env.DB) {
         repo.sizeBytes = actualSizeBytes;
-        await env.REPO_REGISTRY.put(`repo::${repo.id}`, JSON.stringify(repo));
+        await dbService.upsertRepo(env.DB, repo);
       }
 
-      // Check threshold (85%)
       const usage = actualSizeBytes / repo.capacityLimitBytes;
       if (usage > 0.85) {
         const percent = Math.round(usage * 100);
-        await alertThrottled(`cap_${repo.id}`, 
+        await alertThrottled(`cap_${repo.id}`,
           `⚠️ <b>Capacity Warning</b>\nRepo: <code>${repo.id}</code>\nUsage: <b>${percent}%</b> (${(actualSizeBytes/1024/1024).toFixed(1)}MB / ${(repo.capacityLimitBytes/1024/1024/1024).toFixed(0)}GB)\nAction: Please add a new storage repo or clean up.`,
           env, 6, ctx
         );
@@ -49,26 +46,32 @@ export const syncCapacity = async (env: Bindings, ctx?: any) => {
     }
   }
 
-  // Auto-resume paused migration jobs
-  try {
-    const { keys } = await env.REPO_REGISTRY.list({ prefix: 'repo_migration::' });
-    for (const key of keys) {
-      const raw = await env.REPO_REGISTRY.get(key.name);
-      if (raw) {
-        const job = JSON.parse(raw) as RepoMigrationJob;
-        if (job.status === 'paused') {
-          job.status = 'running';
-          await env.REPO_REGISTRY.put(key.name, JSON.stringify(job));
-          if (ctx && ctx.waitUntil) {
-            ctx.waitUntil(migrateRepo(job, env));
-          } else {
-            migrateRepo(job, env).catch(console.error);
-          }
+  // Migration auto-resume moved to D1-based tracking
+  if (env.DB) {
+    try {
+      const { results: tasks } = await env.DB.prepare(`SELECT * FROM migration_tasks WHERE status = 'paused'`).all();
+      for (const task of tasks) {
+        const job: RepoMigrationJob = {
+          jobId: task.id as string,
+          sourceRepo: task.source_repo_id as string,
+          targetRepo: task.target_repo_id as string,
+          status: 'running',
+          cursor: null,
+          total: 0,
+          migrated: 0,
+          failed: 0,
+          errors: [],
+          startedAt: Date.now(),
+          updatedAt: Date.now()
+        };
+        await dbService.upsertTask(env.DB, { ...job, status: 'running', lastUpdate: Date.now() });
+        if (ctx && ctx.waitUntil) {
+          ctx.waitUntil(migrateRepo(job, env));
         }
       }
+    } catch (err) {
+      console.error('Failed to auto-resume migrations', err);
     }
-  } catch (err) {
-    console.error('Failed to auto-resume migrations', err);
   }
 
   return results;

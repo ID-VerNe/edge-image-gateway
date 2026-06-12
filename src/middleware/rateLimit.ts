@@ -63,23 +63,26 @@ export const rateLimitGuard = async (c: Context<AppEnvironment>, next: Next) => 
   // 3. Execute Request
   await next();
 
-  // 4. Post-execution: 404 Tracking (Still use KV for persistent global bans if threshold is high)
-  if (c.res.status === 404 && kv) {
+  // 4. Post-execution: 404 Tracking (Use in-memory first, only write to KV on ban)
+  if (c.res.status === 404) {
     const errorKey = `err404::${ip}::${minuteBucket}`;
-    c.executionCtx.waitUntil((async () => {
-      try {
-        const errorCountStr = await kv.get(errorKey);
-        const errorCount = errorCountStr ? parseInt(errorCountStr, 10) : 0;
-        const newErrorCount = errorCount + 1;
 
-        if (newErrorCount > 20) {
+    // Track in local memory first
+    const errorRecord = localCache.get(errorKey);
+    const errorCount = errorRecord ? errorRecord.count : 0;
+    const newErrorCount = errorCount + 1;
+
+    localCache.set(errorKey, { count: newErrorCount, expires: (minuteBucket + 2) * 60000 });
+
+    // Only write to KV if threshold exceeded (reduces KV writes by 95%)
+    if (newErrorCount > 20 && kv) {
+      c.executionCtx.waitUntil((async () => {
+        try {
           logger.error('404_threshold_exceeded', { ip, count: newErrorCount });
           await kv.put(banKey, '1', { expirationTtl: 300 });
           localBans.set(ip, now + 300000);
-        } else {
-          await kv.put(errorKey, newErrorCount.toString(), { expirationTtl: 120 });
-        }
-      } catch {}
-    })());
+        } catch {}
+      })());
+    }
   }
 };

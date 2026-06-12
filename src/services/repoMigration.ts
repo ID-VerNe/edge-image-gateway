@@ -21,8 +21,20 @@ export interface RepoMigrationJob {
 
 export const saveJob = async (job: RepoMigrationJob, env: Bindings) => {
   job.updatedAt = Date.now();
-  if (env.REPO_REGISTRY) {
-    await env.REPO_REGISTRY.put(`repo_migration::${job.jobId}`, JSON.stringify(job));
+  if (env.DB) {
+    const task = {
+      id: job.jobId,
+      sourcePath: job.cursor || '',
+      targetPath: '',
+      status: job.status,
+      fileSize: 0,
+      sourceRepoId: job.sourceRepo,
+      targetRepoId: job.targetRepo,
+      error: job.errors.length > 0 ? JSON.stringify(job.errors) : null,
+      startTime: job.startedAt,
+      lastUpdate: job.updatedAt
+    };
+    await dbService.upsertTask(env.DB, task);
   }
 };
 
@@ -92,24 +104,13 @@ export const migrateRepo = async (job: RepoMigrationJob, env: Bindings) => {
           throw new Error(`Target verification failed: ${file.path} not found in target repo after write`);
         }
 
-        // 5. Update index (D1 Primary, then KV Mirror)
         if (env.DB) {
-          // Use a batch to keep repo stats and path index in sync
           const batch = [
             env.DB.prepare(`INSERT INTO paths (path, repo_id, size_bytes) VALUES (?, ?, ?) ON CONFLICT(path) DO UPDATE SET repo_id = excluded.repo_id, size_bytes = excluded.size_bytes`).bind(file.path, job.targetRepo, file.size),
             env.DB.prepare(`UPDATE repos SET used_bytes = used_bytes + ?, file_count = file_count + 1 WHERE id = ?`).bind(file.size, job.targetRepo),
             env.DB.prepare(`UPDATE repos SET used_bytes = MAX(0, used_bytes - ?), file_count = MAX(0, file_count - 1) WHERE id = ?`).bind(file.size, job.sourceRepo)
           ];
           await env.DB.batch(batch);
-        }
-
-        // Dual-write to KV (镜像)
-        if (env.REPO_REGISTRY) {
-          try {
-            await env.REPO_REGISTRY.put(`path::${file.path}`, JSON.stringify({ repoId: job.targetRepo }));
-          } catch (e) {
-            logger.warn('kv_migration_index_failed', { path: file.path, jobId: job.jobId, error: String(e) });
-          }
         }
 
         // 6. Delete source ONLY after index is updated
@@ -150,17 +151,8 @@ export const migrateRepo = async (job: RepoMigrationJob, env: Bindings) => {
     job.status = 'done';
     await saveJob(job, env);
 
-    // If fully done, mark source repo as archived (optional, but good practice)
-    if (job.failed === 0) {
-      if (env.REPO_REGISTRY) {
-         sourceRepoObj.meta.status = 'archived';
-         sourceRepoObj.meta.sizeBytes = 0;
-         sourceRepoObj.meta.fileCount = 0;
-         await env.REPO_REGISTRY.put(`repo::${job.sourceRepo}`, JSON.stringify(sourceRepoObj.meta));
-      }
-      if (env.DB) {
-         await env.DB.prepare(`UPDATE repos SET status = 'archived', used_bytes = 0, file_count = 0 WHERE id = ?`).bind(job.sourceRepo).run();
-      }
+    if (job.failed === 0 && env.DB) {
+      await env.DB.prepare(`UPDATE repos SET status = 'archived', used_bytes = 0, file_count = 0 WHERE id = ?`).bind(job.sourceRepo).run();
     }
 
   } catch (e: any) {

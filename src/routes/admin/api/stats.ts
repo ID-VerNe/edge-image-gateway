@@ -81,26 +81,8 @@ statsApi.post('/tokens', async (c) => {
 
   const permissions = Array.isArray(scopes) ? scopes : ['read', 'write', 'delete'];
   
-  // Phase 3: D1 primary
   if (c.env.DB) {
     await dbService.upsertToken(c.env.DB, token, name, now, permissions, pathPrefix, expiresAtStr);
-  }
-
-  // Dual-write to KV (Background)
-  if (c.env.REPO_REGISTRY) {
-    c.executionCtx.waitUntil((async () => {
-      try {
-        await c.env.REPO_REGISTRY!.put(`auth::token::${token}`, JSON.stringify({ 
-          name, 
-          createdAt: now,
-          permissions,
-          pathPrefix,
-          expiresAt: expiresAtStr
-        }));
-      } catch (e) {
-        logger.warn('kv_mirror_failed', { key: `auth::token::${token}`, error: String(e) });
-      }
-    })());
   }
 
   return c.json({ success: true, token, name, permissions, pathPrefix, expiresAt: expiresAtStr });
@@ -108,21 +90,9 @@ statsApi.post('/tokens', async (c) => {
 
 statsApi.delete('/tokens/:id', async (c) => {
   const id = c.req.param('id');
-  
-  // Phase 3: D1 primary
+
   if (c.env.DB) {
     await c.env.DB.prepare('DELETE FROM auth_tokens WHERE token = ?').bind(id).run();
-  }
-
-  // Dual-write to KV (Background)
-  if (c.env.REPO_REGISTRY) {
-    c.executionCtx.waitUntil((async () => {
-      try {
-        await c.env.REPO_REGISTRY!.delete(`auth::token::${id}`);
-      } catch (e) {
-        logger.warn('kv_mirror_failed', { key: `auth::token::${id}`, error: String(e) });
-      }
-    })());
   }
 
   return c.json({ success: true });

@@ -78,26 +78,5 @@ export const logger = {
         console.error('Failed to record audit log to D1:', e);
       }
     }
-
-    // Dual-write to KV (Background)
-    if (c.env.REPO_REGISTRY) {
-      c.executionCtx.waitUntil((async () => {
-        try {
-          const auditKey = `audit::${timestamp}::${action}`;
-          const payload = {
-            ts: new Date(timestamp).toISOString(),
-            action,
-            user: user.email,
-            ip,
-            ...data
-          };
-          await c.env.REPO_REGISTRY!.put(auditKey, JSON.stringify(payload), { 
-            expirationTtl: 90 * 24 * 60 * 60 // 90 days 
-          });
-        } catch (e) {
-          console.error('Failed to record audit log to KV:', e);
-        }
-      })());
-    }
   }
 };

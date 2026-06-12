@@ -31,19 +31,8 @@ mutateApi.post('/mkdir', async (c) => {
     }
 
     if (c.env.DB) {
-      await dbService.recordFileAddition(c.env.DB, fullPath, repo.meta.id, 0); 
+      await dbService.recordFileAddition(c.env.DB, fullPath, repo.meta.id, 0);
       await dbService.upsertRepo(c.env.DB, repo.meta);
-    }
-
-    // Dual-write to KV (Background)
-    if (c.env.REPO_REGISTRY) {
-      c.executionCtx.waitUntil((async () => {
-        try {
-          await c.env.REPO_REGISTRY!.put(`path::${fullPath}`, repo.meta.id);
-        } catch (e) {
-          logger.warn('kv_mirror_failed', { path: fullPath, repoId: repo.meta.id, error: String(e) });
-        }
-      })());
     }
 
     c.executionCtx.waitUntil(logger.recordAudit(c, 'MKDIR', { path }));
@@ -77,54 +66,23 @@ mutateApi.delete('/*', async (c) => {
       let deletedBytes = 0;
       for (const item of itemsToDelete) {
         const delRes = await githubService.deleteFile(
-          item.path, 
-          repo, 
-          item.sha, 
+          item.path,
+          repo,
+          item.sha,
           `Delete ${item.path} (recursive dir delete) via Admin UI`
         );
         if (delRes.ok) {
           deletedCount++;
           deletedBytes += item.size || 0;
-          if (c.env.REPO_REGISTRY) {
-            const recordStr = await c.env.REPO_REGISTRY.get(`path::${item.path}`);
-            if (recordStr && recordStr.startsWith('{')) {
-              try {
-                const record = JSON.parse(recordStr);
-                if (record.hash) await c.env.REPO_REGISTRY.delete(`hash::${record.hash}`);
-              } catch {}
-            }
-            await c.env.REPO_REGISTRY.delete(`path::${item.path}`);
-          }
         }
       }
 
-      // Phase 3: D1 primary for dir deletion
       if (deletedCount > 0 && c.env.DB) {
-        // Batch delete paths and update repo stats
         const batch = [
           c.env.DB.prepare(`UPDATE repos SET used_bytes = MAX(0, used_bytes - ?), file_count = MAX(0, file_count - ?) WHERE id = ?`).bind(deletedBytes, deletedCount, repo.meta.id),
           ...itemsToDelete.map((item: any) => c.env.DB.prepare(`DELETE FROM paths WHERE path = ?`).bind(item.path))
         ];
         await c.env.DB.batch(batch);
-      }
-
-      // Dual-write to KV (Background)
-      if (deletedCount > 0 && c.env.REPO_REGISTRY) {
-        c.executionCtx.waitUntil((async () => {
-          repo.meta.fileCount = Math.max(0, repo.meta.fileCount - deletedCount);
-          repo.meta.sizeBytes = Math.max(0, repo.meta.sizeBytes - deletedBytes);
-          await c.env.REPO_REGISTRY!.put(`repo::${repo.meta.id}`, JSON.stringify(repo.meta));
-          for (const item of itemsToDelete) {
-            const recordStr = await c.env.REPO_REGISTRY!.get(`path::${item.path}`);
-            if (recordStr && recordStr.startsWith('{')) {
-              try {
-                const record = JSON.parse(recordStr);
-                if (record.hash) await c.env.REPO_REGISTRY!.delete(`hash::${record.hash}`);
-              } catch {}
-            }
-            await c.env.REPO_REGISTRY!.delete(`path::${item.path}`);
-          }
-        })());
       }
       
       c.executionCtx.waitUntil(logger.recordAudit(c, 'DELETE_DIR', { path, deletedCount }));

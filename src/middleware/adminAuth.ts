@@ -54,13 +54,9 @@ export const adminAuthGuard: MiddlewareHandler<AppEnvironment> = async (c, next)
       if (method === 'DELETE' && !scopes.includes('delete')) return c.json({ error: 'Delete permission required' }, 403);
       if (method === 'GET' && !scopes.includes('read')) return c.json({ error: 'Read permission required' }, 403);
 
-      // Async update lastUsedAt
+      // Update last used timestamp (D1 only)
       if (c.env.DB) {
         c.executionCtx.waitUntil(dbService.updateTokenLastUsed(c.env.DB, token).catch(() => {}));
-      }
-      if (c.env.REPO_REGISTRY) {
-        tokenInfo.lastUsedAt = new Date().toISOString();
-        c.executionCtx.waitUntil(c.env.REPO_REGISTRY.put(`auth::token::${token}`, JSON.stringify(tokenInfo)).catch(() => {}));
       }
 
       c.set('tokenInfo', tokenInfo);

@@ -122,24 +122,7 @@ uploadApi.post('/', async (c) => {
       await dbService.recordFileAddition(c.env.DB, path, repo.meta.id, file.size, hash);
     }
 
-    // Dual-write to KV (Background)
-    if (c.env.REPO_REGISTRY) {
-      c.executionCtx.waitUntil((async () => {
-        try {
-          await c.env.REPO_REGISTRY!.put(`hash::${hash}`, JSON.stringify(result));
-          await c.env.REPO_REGISTRY!.put(`path::${path}`, JSON.stringify({ repoId: repo.meta.id, hash }));
-          const currentRepo = await c.env.REPO_REGISTRY!.get(`repo::${repo.meta.id}`, 'json') as RepoMeta | null;
-          if (currentRepo) {
-            currentRepo.sizeBytes += file.size;
-            currentRepo.fileCount += 1;
-            await c.env.REPO_REGISTRY!.put(`repo::${repo.meta.id}`, JSON.stringify(currentRepo));
-          }
-        } catch (e) {
-          logger.warn('kv_mirror_failed', { path, repoId: repo.meta.id, error: String(e) });
-          // Optional: c.env.REPO_REGISTRY!.put(`reconcile::path::${path}`, repo.meta.id, { expirationTtl: 86400 }).catch(() => {});
-        }
-      })());
-    }
+    // KV mirror disabled: D1-only mode for lower KV write costs
 
     const origin = new URL(c.req.url).origin;
     const fullUrl = `${origin}${result.url}`;
