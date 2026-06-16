@@ -48,9 +48,9 @@ npx wrangler kv:namespace create "REPO_REGISTRY"
 
 将输出的 `id` 填入 `wrangler.toml` 的 `[[kv_namespaces]]` 配置中。
 
-### 5. 创建 D1 数据库（可选）
+### 5. 创建 D1 数据库
 
-如果使用 D1 作为主索引（推荐），需要创建 D1 数据库：
+D1 是项目的主数据库，所有数据（文件元数据、仓库配置、认证令牌、审计日志等）均存储在 D1 中，**必须创建**：
 
 ```bash
 # 创建 D1 数据库
@@ -121,24 +121,16 @@ npx wrangler secret put TELEGRAM_CHAT_ID
 npx wrangler secret put SENTRY_DSN
 ```
 
-### 4. 初始化 KV 配置
+### 4. 初始化 D1 数据库 Schema
 
-部署后首次访问管理面板，系统会自动初始化默认配置。
-
-如需手动初始化：
+部署前需要初始化 D1 数据库的表结构：
 
 ```bash
-# 设置默认仓库
-npx wrangler kv:key put \
-  --binding=REPO_REGISTRY \
-  "repo::default" \
-  '{"id":"default","owner":"YOUR_USER","name":"YOUR_REPO","branch":"main","status":"active","createdAt":"2025-01-01T00:00:00.000Z","sizeBytes":0,"fileCount":0,"capacityLimitBytes":5368709120,"tokenSecretName":"GITHUB_TOKEN"}'
-
-# 设置当前写仓库
-npx wrangler kv:key put \
-  --binding=REPO_REGISTRY \
-  "route::current_write" "default"
+# 初始化 D1 数据库 schema
+npx wrangler d1 execute edge-image-gateway-db --file=scripts/schema.sql --env production
 ```
+
+首次部署后访问管理面板，系统会自动初始化默认配置。
 
 ### 5. 部署
 
@@ -266,14 +258,13 @@ crons = ["0 */6 * * *"]  # 每 6 小时执行一次
 ## 生产环境部署清单
 
 - [ ] GitHub Token 已生成且有 `repo` 权限（Fine-grained，最小权限）
-- [ ] KV Namespace 已创建并配置
-- [ ] D1 数据库已创建并初始化 Schema（如使用）
+- [ ] KV Namespace 已创建并配置（用于速率限制）
+- [ ] D1 数据库 Schema 已初始化
 - [ ] R2 Bucket 已创建（如使用）
 - [ ] 所有 Secrets 已通过 `wrangler secret put` 设置
 - [ ] Cloudflare Image Resizing 已启用（如需要图片处理功能）
 - [ ] 域名已通过 Cloudflare 代理（DNS 设置为 Proxied）
 - [ ] Cloudflare Access 或 TOTP 已配置
-- [ ] 首次部署后已经初始化 KV 仓库注册表
 - [ ] Cron 触发器已配置（如需要自动同步统计）
 - [ ] Analytics Engine 数据集已创建（如使用）
 - [ ] Worker 路由已绑定到自定义域名（可选）
@@ -316,7 +307,6 @@ crons = ["0 */6 * * *"]  # 每 6 小时执行一次
 | 项目 | 免费额度 | 超过后的建议 |
 |------|----------|-------------|
 | Workers 请求 | 10 万次/天 | 优化缓存策略，减少 Worker 调用 |
-| KV 读取 | 10 万次/天 | 利用内存缓存（30s TTL）减少 KV 读取 |
 | D1 读取 | 500 万行/天 | 优化查询，使用索引 |
 | R2 存储 | 10 GB | 使用较小的图片格式，定期清理无用变体 |
 

@@ -9,10 +9,10 @@
 - **症状**: 写入激增、审计日志异常、Telegram 告警刷屏。
 - **处置**: 开启紧急熔断 (`EMERGENCY_LOCKDOWN`)。
   - **操作**:
-    1. 修改 `wrangler.toml` 或通过 Cloudflare Dashboard 设置环境变量 `EMERGENCY_LOCKDOWN=true`。
-    2. 重新部署：`pnpm exec wrangler deploy --env production`。
+    1. **即时生效（推荐）**：通过管理面板一键开启，或直接写入 KV：`npx wrangler kv:key put --binding=REPO_REGISTRY "kv_config::emergency_lockdown" "true" --env production`。
+    2. **备选**：修改 `wrangler.toml` 设置 `EMERGENCY_LOCKDOWN=true` 后重新部署。
   - **效果**: 所有写操作 (Upload, Mkdir, Delete, Migrate) 被拒，读请求不受影响。
-- **恢复**: 确认威胁排除后，将 `EMERGENCY_LOCKDOWN` 设为 `false` 并重新部署。
+- **恢复**: 确认威胁排除后，将 `kv_config::emergency_lockdown` 设为 `"false"` 或将环境变量恢复后重新部署。
 - **验证**: 发送一个测试上传请求确认返回 200；检查 `/healthz` 的 `lockdown` 状态。
 
 ---
@@ -71,7 +71,7 @@
 
 - **症状**: 日志出现大量 `d1_read_failed_fallback_to_kv`。
 - **处置**:
-  - 系统会自动降级到 KV 镜像读取，无需人工即时干预。
+  - 系统会自动降级到 D1 兜底读取（若 D1 不可用则返回错误），无需人工即时干预。
   - 评估是否开启 `EMERGENCY_LOCKDOWN` 避免 KV 与 D1 产生更严重的不一致。
 - **恢复**: D1 恢复后，观察日志确认读取重回 D1。如有需要，可手动对比 D1 和 KV 的 `repos` 统计信息。
 

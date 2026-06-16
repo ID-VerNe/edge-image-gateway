@@ -102,7 +102,7 @@ GET /{path}?list
 POST /upload
 ```
 
-上传图片文件到默认写仓库。
+上传图片文件到默认写仓库（公开 API）。
 
 **请求头**
 
@@ -117,8 +117,10 @@ POST /upload
 | 字段 | 类型 | 必填 | 说明 |
 |------|------|------|------|
 | `file` | File | 是 | 要上传的文件 |
-| `path` | string | 否 | 自定义存储路径（含文件名） |
+| `path` | string | 否 | 自定义存储路径（含文件名），如 `blog/2025/photo.jpg` |
 | `prefix` | string | 否 | 路径前缀，自动与文件名拼接 |
+
+> **注意**：公开上传 API 使用 `path` / `prefix` 字段。管理面板上传（`POST /admin/api/upload`）使用 `targetDir` 字段（仅目录，不含文件名），见下文「上传（管理面板）」章节。
 
 **成功响应**
 
@@ -412,7 +414,9 @@ POST /admin/api/upload
 | 字段 | 类型 | 必填 | 说明 |
 |------|------|------|------|
 | `file` | File | 是 | 要上传的文件 |
-| `path` | string | 否 | 目标目录路径 |
+| `targetDir` | string | 否 | 目标目录（不含文件名），如 `blog/2025`。若已登录令牌配置了 `pathPrefix`，则自动使用该前缀；否则可在此指定 |
+
+> **注意**：管理面板上传使用 `targetDir` 字段（仅目录路径），与公开上传 API（`POST /upload`，使用 `path` / `prefix`）不同。
 
 **响应：**
 
@@ -426,6 +430,16 @@ POST /admin/api/upload
   "size": 102400,
   "sha256": "abc123..."
 }
+```
+
+**示例**
+
+```bash
+curl -X POST \
+  -H "Authorization: Bearer <token>" \
+  -F "file=@photo.jpg" \
+  -F "targetDir=blog/2025" \
+  https://image.example.com/admin/api/upload
 ```
 
 ### 统计

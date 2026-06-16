@@ -54,7 +54,7 @@
 | 类别 | 特性 | 说明 |
 |------|------|------|
 | **存储** | GitHub 后端存储 | 利用 GitHub 仓库存储图片，无需额外存储服务 |
-| **存储** | D1 主索引 | 使用 Cloudflare D1 (SQLite) 作为高性能主索引，并同步 KV 镜像实现平滑降级 |
+| **存储** | D1 主索引 | 使用 Cloudflare D1 (SQLite) 作为唯一主索引，KV 仅用于限流与监控 |
 | **存储** | 多仓库支持 & 迁移 | 支持多 GitHub 仓库，提供 Draining 状态与可视化跨仓库文件自动迁移工具 |
 | **图片处理** | 实时处理 | 基于 Cloudflare Image Resizing 实现缩放、裁剪、格式转换、锐化等 |
 | **访问控制** | 多层防护 | Referer 防盗链、HMAC 签名认证、IP 令牌桶限流、紧急熔断开关 |
@@ -107,7 +107,7 @@
                     ┌─────────▼────────────┐
                     │  持久化与性能增强层   │
                     │ • D1 (主索引/配置)    │
-                    │ • KV (降级镜像/限流)  │
+                    │ • KV (限流/监控)      │
                     │ • R2 (图片变体缓存)   │
                     │ • Analytics Engine   │
                     └──────────────────────┘
@@ -330,7 +330,7 @@ Edge Image Gateway 采用深度防御策略，多层安全防护：
 |------|------|
 | [Cloudflare Workers](https://workers.cloudflare.com/) | 无服务器边缘计算平台 |
 | [Cloudflare D1](https://developers.cloudflare.com/d1/) | 关系型数据库 (SQLite) - 主索引 |
-| [Cloudflare KV](https://developers.cloudflare.com/kv/) | 键值存储 - 降级镜像与限流 |
+| [Cloudflare KV](https://developers.cloudflare.com/kv/) | 键值存储 - 限流与监控 |
 | [Cloudflare R2](https://developers.cloudflare.com/r2/) | 对象存储 - 图片变体缓存 (L2) |
 | [Cloudflare Analytics Engine](https://developers.cloudflare.com/analytics/analytics-engine/) | 时序指标监控 |
 | [Hono](https://hono.dev/) | 轻量级 Web 框架 |

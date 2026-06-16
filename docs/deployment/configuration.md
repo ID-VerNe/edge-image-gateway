@@ -5,7 +5,7 @@
 Edge Image Gateway 的配置分为三个层次：
 
 1. **环境变量 / Secrets** — 在 `wrangler.toml` 或 Cloudflare Dashboard 中配置
-2. **KV 动态配置** — 通过管理面板或直接操作 KV 的运行时配置
+2. **D1 动态配置** — 通过管理面板或直接操作 D1 的运行时配置
 3. **wrangler 配置** — Workers 部署配置文件
 
 ---
@@ -122,22 +122,22 @@ npx wrangler secret delete GITHUB_TOKEN
 
 ---
 
-## KV 动态配置
+## D1 动态配置
 
-除了环境变量，部分配置可通过 KV 运行时动态调整，无需重新部署。
+除了环境变量，大部分运行时配置通过 D1 数据库存储和管理，可通过管理面板或直接执行 D1 SQL 动态调整，无需重新部署。
 
 ### 功能开关
 
-| KV 键 | 值类型 | 说明 |
-|-------|--------|------|
-| `kv_config::emergency_lockdown` | `"true"` / `"false"` | 紧急熔断开关 |
-| `kv_config::max_file_size` | 数字字符串（字节） | 上传文件大小上限 |
-| `kv_config::allowed_types` | 逗号分隔的 MIME 类型 | 允许上传的文件类型 |
-| `kv_config::upload_prefix` | 路径字符串 | 上传文件的默认前缀路径 |
+| D1 表/字段 | 值类型 | 说明 |
+|-----------|--------|------|
+| `system_config` 表 | JSON | 运行时参数（上传限制、功能开关等），通过管理面板编辑 |
+| `kv_config::emergency_lockdown`（KV） | `"true"` / `"false"` | 紧急熔断开关（KV 保留项，用于运行时快速熔断） |
+
+> 注意：`max_file_size`、`allowed_types`、`upload_prefix` 等已迁移至 D1 `system_config` 表或通过环境变量配置，不再使用 KV。
 
 ### 仓库注册表
 
-通过 KV 管理多仓库配置，每个仓库键为 `repo::{id}`，值为 `RepoMeta` JSON：
+所有仓库元数据存储在 D1 `repos` 表中，每条记录包含完整的仓库信息：
 
 ```json
 {
@@ -154,24 +154,63 @@ npx wrangler secret delete GITHUB_TOKEN
 }
 ```
 
+通过管理面板的「仓库管理」页面或直接查询 D1 管理：
+
+```sql
+-- 查询所有仓库
+SELECT * FROM repos ORDER BY created_at DESC;
+
+-- 查询活跃仓库
+SELECT * FROM repos WHERE status = 'active';
+
+-- 更新仓库状态
+UPDATE repos SET status = 'inactive' WHERE id = 'repo-main';
+```
+
 ### 路由规则
 
-读路由规则存储在 `route::read_rules` 键中：
+读路由规则存储在 D1 `system_config` 表中：
 
 ```json
-[
+{
+  "route_rules": [
+    { "prefix": "/blog", "repo": "repo-blog" },
+    { "prefix": "/photos", "repo": "repo-photos", "since": "2025-06-01" }
+  ]
+}
+```
+
+通过管理面板的「路由规则」页面编辑，或直接操作 D1：
+
+```sql
+-- 查看当前路由规则
+SELECT value FROM system_config WHERE key = 'route_rules';
+
+-- 更新路由规则
+UPDATE system_config SET value = '[
   { "prefix": "/blog", "repo": "repo-blog" },
-  { "prefix": "/photos", "repo": "repo-photos", "since": "2025-06-01" }
-]
+  { "prefix": "/photos", "repo": "repo-photos" }
+]' WHERE key = 'route_rules';
 ```
 
 ### 路径索引
 
-文件上传后自动在 KV 中记录 `path::{path}` → `{ repoId, sha, size }` 映射，用于加速后续读请求的路由：
+文件上传后自动在 D1 `paths` 表中记录路径 → 仓库映射：
 
-```
-键: path:/blog/2025/photo.jpg
-值: {"repo":"repo-blog"}
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `path` | TEXT | 文件路径，主键 |
+| `repo_id` | TEXT | 所属仓库 ID |
+| `sha` | TEXT | GitHub blob SHA |
+| `size_bytes` | INTEGER | 文件大小 |
+| `created_at` | TEXT | 创建时间 |
+
+```sql
+-- 按路径查询
+SELECT * FROM paths WHERE path = '/blog/2025/photo.jpg';
+
+-- 按前缀查询
+SELECT * FROM paths WHERE path LIKE '/blog/%';
 ```
 
 ---
@@ -182,7 +221,7 @@ npx wrangler secret delete GITHUB_TOKEN
 
 1. **初始配置** — 在 `wrangler.toml` 中设置基本环境变量
 2. **Secrets 管理** — 所有敏感信息使用 `wrangler secret put` 设置
-3. **动态配置** — 部署后通过管理面板或直接操作 KV 调整运行时参数
+3. **动态配置** — 部署后通过管理面板或直接操作 D1 调整运行时参数
 4. **多环境** — 使用 Cloudflare Workers 的 Preview / Production 环境隔离配置
 
 ### 配置验证
@@ -311,12 +350,13 @@ CACHE_TTL_SECONDS = "86400"
 
 系统配置有多层来源，优先级从高到低：
 
-1. **KV 动态配置**（运行时修改，即时生效）
-2. **环境变量 Secret**（通过 `wrangler secret put` 设置）
-3. **环境变量 vars**（在 `wrangler.toml` 中设置）
-4. **代码默认值**
+1. **KV 运行时覆盖**（`kv_config::emergency_lockdown`，仅限熔断场景，即时生效）
+2. **D1 动态配置**（通过管理面板或 SQL 修改，次优先，持久化存储）
+3. **环境变量 Secret**（通过 `wrangler secret put` 设置）
+4. **环境变量 vars**（在 `wrangler.toml` 中设置）
+5. **代码默认值**
 
-> 例如：`EMERGENCY_LOCKDOWN` 同时存在于 KV (`kv_config::emergency_lockdown`) 和环境变量中时，KV 中的值优先生效。
+> 注意：D1 是主要的持久化配置源，KV 仅在紧急熔断等极少数场景使用。大部分配置应通过 D1 管理。
 
 ---
 
@@ -328,7 +368,6 @@ CACHE_TTL_SECONDS = "86400"
 |------|------|----------|
 | `SIGN_SECRET` 太短 | `/healthz` 返回 `config: invalid` | 使用至少 16 字符的随机字符串 |
 | `GITHUB_TOKEN` 未设置 | 上传返回 401 | 运行 `wrangler secret put GITHUB_TOKEN` |
-| KV Namespace ID 错误 | 路由规则不生效 | 检查 `wrangler.toml` 中 `[[kv_namespaces]]` 的 `id` |
 | D1 database_id 错误 | 管理面板数据为空 | 检查 `wrangler.toml` 中 `[[d1_databases]]` 的 `database_id` |
 | `ALLOWED_REFERERS` 配置错误 | 所有带 Referer 的请求返回 403 | 检查域名格式，确保不含 `http://` 之外的协议前缀差异 |
 | 环境变量未生效 | 修改后行为不变 | 重新部署：`pnpm exec wrangler deploy --env production` |
@@ -339,14 +378,14 @@ CACHE_TTL_SECONDS = "86400"
 # 查看当前 Secrets 列表
 npx wrangler secret list
 
-# 查看当前 KV 配置
-npx wrangler kv:key get --binding=REPO_REGISTRY "kv_config::emergency_lockdown"
+# 查看当前 D1 配置（紧急熔断开关）
+npx wrangler d1 execute DB --command "SELECT * FROM system_config WHERE key = 'emergency_lockdown';"
 
 # 查看当前路由规则
-npx wrangler kv:key get --binding=REPO_REGISTRY "route::read_rules"
+npx wrangler d1 execute DB --command "SELECT value FROM system_config WHERE key = 'route_rules';"
 
 # 查看当前写仓库
-npx wrangler kv:key get --binding=REPO_REGISTRY "route::current_write"
+npx wrangler d1 execute DB --command "SELECT * FROM repos WHERE status = 'active';"
 
 # 健康检查
 curl https://{你的域名}/healthz

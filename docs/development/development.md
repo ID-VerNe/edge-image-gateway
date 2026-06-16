@@ -69,7 +69,6 @@ edge-image-gateway/
 │   │       │   ├── events.ts     # 事件处理
 │   │       │   ├── navigation.ts # 导航逻辑
 │   │       │   ├── render.ts     # 模板渲染引擎
-│   │       │   ├── scripts.ts    # 脚本聚合
 │   │       │   ├── selection.ts  # 选择逻辑
 │   │       │   ├── state.ts      # 前端状态管理
 │   │       │   ├── utils.ts      # 前端工具函数
@@ -79,38 +78,50 @@ edge-image-gateway/
 │   │       │       ├── shareActions.ts # 分享操作
 │   │       │       └── tokenActions.ts # Token 操作
 │   │       ├── partials.ts       # HTML 模板片段
-│   │       ├── scripts.ts        # 前端脚本注入
+│   │       ├── scripts.ts        # 前端脚本聚合注入
 │   │       └── styles.ts         # 前端样式注入
 │   ├── middleware/
 │   │   ├── adminAuth.ts          # 管理员认证
-│   │   ├── rateLimit.ts          # 速率限制（令牌桶）
+│   │   ├── rateLimit.ts          # 速率限制（令牌桶，使用 KV）
 │   │   ├── referer.ts            # 防盗链（Referer 白名单）
 │   │   └── signature.ts          # 签名认证 + 紧急熔断检查
 │   ├── services/
 │   │   ├── cron.ts               # 定时任务
-│   │   ├── database.ts           # D1/KV 数据访问层（一致性封装）
-│   │   ├── github.ts             # GitHub API 封装
+│   │   ├── database.ts           # D1 数据访问层
+│   │   ├── github.ts             # GitHub API 封装（使用 KV 做速率监控）
 │   │   ├── repoMigration.ts      # 跨仓库迁移引擎（断点续传）
 │   │   └── repoRouter.ts         # 多仓库路由引擎
 │   ├── utils/
 │   │   ├── cache.ts              # 缓存管理
 │   │   ├── configCheck.ts        # 启动自检（Zod Schema 校验）
+│   │   ├── escape.ts             # HTML/JS 安全字符串插值
+│   │   ├── favicon.ts            # Favicon Base64 数据
 │   │   ├── hash.ts               # 哈希工具
 │   │   ├── hmac.ts               # HMAC 签名工具
 │   │   ├── imageProcessor.ts     # 图片处理（EXIF 剥离）
 │   │   ├── logger.ts             # 日志记录
 │   │   ├── mime.ts               # MIME 类型映射
-│   │   ├── notifications.ts      # 通知推送（Telegram）
+│   │   ├── notifications.ts      # 通知推送（Telegram，使用 KV 做节流）
+│   │   ├── path.ts               # 统一路径归一化处理
 │   │   └── r2Cache.ts            # R2 缓存集成
 │   └── types/
 │       └── env.d.ts              # 环境变量 Bindings 类型
 ├── scripts/
 │   ├── sign.ts                   # 签名生成脚本（独立使用）
-│   └── schema.sql                # 数据库 Schema 参考
+│   └── schema.sql                # D1 数据库 Schema（repos、paths、tokens 等表定义）
 ├── tests/
-│   └── index.spec.ts             # 测试文件
+│   ├── index.spec.ts             # 集成测试
+│   ├── helpers/
+│   │   └── mockKV.ts             # KV 模拟辅助
+│   └── unit/
+│       ├── configCheck.spec.ts   # 配置校验测试
+│       ├── consistency.spec.ts   # 数据一致性测试
+│       ├── rateLimit.spec.ts     # 限流测试
+│       ├── repoRouter.spec.ts    # 路由测试
+│       └── signature.spec.ts     # 签名测试
 ├── docs/                         # 文档目录
 ├── wrangler.toml.example         # 配置模板
+├── wrangler.toml                 # Cloudflare 配置（不提交秘密）
 ├── package.json
 ├── tsconfig.json
 └── vitest.config.ts
@@ -205,7 +216,7 @@ pnpm test -- --coverage
 |------|------|----------|
 | 单元测试 | 测试单个模块功能 | `tests/unit/rateLimit.spec.ts`、`signature.spec.ts`、`configCheck.spec.ts` |
 | 集成测试 | 测试模块间交互 | `tests/index.spec.ts` |
-| 一致性测试 | 验证 D1/KV 双写一致性 | `tests/unit/consistency.spec.ts` |
+| 一致性测试 | 验证 D1 主存储数据完整性 | `tests/unit/consistency.spec.ts` |
 | 路由测试 | 验证多仓库路由逻辑 | `tests/unit/repoRouter.spec.ts` |
 
 ### 测试配置
@@ -335,7 +346,7 @@ npx tsx scripts/sign.ts POST /upload 1717200000 '{"file":"..."}'
 
 ### schema.sql
 
-包含 KV 键的设计参考和数据结构说明，用于理解系统的数据模型。
+包含 D1 数据库的完整 Schema 定义（`repos`、`paths`、`auth_tokens`、`audit_logs` 等表），用于初始化和迁移数据库结构。
 
 ---
 
@@ -379,5 +390,5 @@ curl https://{你的域名}/healthz
 ## 延伸阅读
 
 - [架构总览](../architecture/overview.md) — 系统全景、请求生命周期、缓存体系
-- [架构说明](../architecture/details.md) — 模块设计、数据流、D1/KV 一致性
+- [架构说明](../architecture/details.md) — 模块设计、数据流、D1 主存储
 - [文档导航](../index.md) — 所有文档的快速索引

@@ -32,7 +32,7 @@ graph TD
 
     subgraph Persistence [持久化层]
         D1[Cloudflare D1 - 主存储]
-        KV[Cloudflare KV - 降级存储]
+        KV[Cloudflare KV - 限流/监控]
         R2[Cloudflare R2 - 图片变体缓存]
     end
 
@@ -117,7 +117,7 @@ graph TD
 
 ### 4.2 多仓库水平扩展
 
-支持注册无限个 GitHub 仓库，每个仓库可配置独立的 Token（`tokenSecretName`）。
+支持注册无限个 GitHub 仓库，仓库注册表存储在 Cloudflare D1 中（repos 表），KV 作为降级缓存层。每个仓库可配置独立的 Token（`tokenSecretName`）。
 
 | 状态 | 说明 |
 | :--- | :--- |
@@ -145,9 +145,9 @@ graph TD
 
 ## 5. 数据持久化方案
 
-系统采用 **D1 主存储 + KV 降级** 的双写架构，兼顾结构化查询能力和兼容性。
+系统采用 **D1 主存储 + KV 降级缓存** 的架构，D1 作为所有结构化数据的权威存储层，KV 仅用于限流、监控和故障降级场景。
 
-### 5.1 D1 数据库（Phase 3 主存储）
+### 5.1 D1 数据库（权威存储层）
 
 | 表名 | 用途 |
 | :--- | :--- |
@@ -158,22 +158,17 @@ graph TD
 | `audit_logs` | 审计日志（ts, action, user_email, ip, details） |
 | `migration_tasks` | 迁移任务状态 |
 
-### 5.2 KV 存储（降级 / 过渡）
+> 以上所有表均为对应数据的权威存储层（authoritative store），KV 仅作为可选的降级缓存，不承担数据持久化职责。
+
+### 5.2 KV 存储（限流 / 监控 / 缓存辅助）
 
 | 键模式 | 描述 | 示例值 |
 | :--- | :--- | :--- |
-| `repo::{id}` | 仓库元数据 | `{"id":"repo-main","sizeBytes":...,"status":"active"}` |
-| `route::read_rules` | 路径前缀路由规则 | `[{"prefix":"/blog","repo":"repo-blog"}]` |
-| `route::current_write` | 当前写仓库 ID | `"repo-uploads-2025"` |
-| `path::{path}` | 路径 → 仓库映射 | `{"repoId":"repo-blog"}` |
-| `auth::token::{token}` | API Token 信息 | `{"name":"...","permissions":["read","write"]}` |
-| `audit::{ts}::{action}` | 审计日志 | `{"action":"file_delete","user":"..."}` |
-| `github_rate::{repoId}` | GitHub API 速率状态 | `{"remaining":4990,"limit":5000,"reset":...}` |
-| `alert_sent::{key}` | 告警节流时间戳 | `1718000000000` |
 | `ban::{ip}` | IP 封禁标记 | `"1"` (5 分钟 TTL) |
 | `err404::{ip}::{bucket}` | 404 计数（限流惩罚用） | `"15"` (2 分钟 TTL) |
+| `github_rate::{repoId}` | GitHub API 速率状态 | `{"remaining":4990,"limit":5000,"reset":...}` |
+| `alert_sent::{key}` | 告警节流时间戳 | `1718000000000` |
 | `variants::{path}` | 缓存变体 URL 列表 | `["https://...?w=100",...]` |
-| `repo_migration::{jobId}` | 迁移任务状态 | `{"status":"running","cursor":"..."}` |
 
 ### 5.3 R2 对象存储（图片变体缓存）
 
@@ -265,7 +260,7 @@ graph TD
 - 结构化 JSON 日志输出，包含 `ts`、`level`、`event` 和数据字段
 - 可选 Sentry 集成：自动捕获运行时异常并上报
 - 可选 Analytics Engine：上报缓存命中率、响应时间、路径前缀等指标
-- 审计日志：所有管理操作写入 D1（主）和 KV（备），KV 中保留 90 天
+- 审计日志：所有管理操作写入 D1 审计日志表，支持按时间范围和操作类型查询
 
 ### 9.4 健康检查
 
@@ -367,7 +362,7 @@ src/
 | 绑定名 | 类型 | 说明 |
 | :--- | :--- | :--- |
 | `REPO_REGISTRY` | KV Namespace | 仓库注册表、路由规则、审计日志、Token |
-| `DB` | D1 Database | 结构化数据主存储（Phase 3） |
+| `DB` | D1 Database | 结构化数据主存储 |
 | `CACHE_BUCKET` | R2 Bucket | 图片变体缓存 |
 | `ANALYTICS_ENGINE` | Analytics Engine | 可选指标上报 |
 
