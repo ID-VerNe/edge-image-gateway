@@ -35,6 +35,9 @@ export interface Bindings {
   SENTRY_DSN?: string;
   TELEGRAM_BOT_TOKEN?: string;
   TELEGRAM_CHAT_ID?: string;
+  GOOGLE_DRIVE_CLIENT_ID?: string;
+  GOOGLE_DRIVE_CLIENT_SECRET?: string;
+  GOOGLE_DRIVE_REFRESH_TOKEN?: string;
 }
 
 export type AppEnvironment = {

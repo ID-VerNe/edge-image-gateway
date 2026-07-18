@@ -297,7 +297,7 @@ export const dbService = {
   /**
    * Record file addition with provider_id support.
    */
-  recordFileAdditionV2: async (db: D1Database, path: string, providerId: string, sizeBytes: number, hash?: string, repoId?: string) => {
+  recordFileAdditionV2: async (db: D1Database, path: string, providerId: string, sizeBytes: number, hash?: string, repoId?: string, externalId?: string) => {
     const batch = [
       db.prepare(`
         UPDATE providers
@@ -305,14 +305,15 @@ export const dbService = {
         WHERE id = ?
       `).bind(sizeBytes, providerId),
       db.prepare(`
-        INSERT INTO path_providers (path, provider_id, repo_id, size_bytes, hash)
-        VALUES (?, ?, ?, ?, ?)
+        INSERT INTO path_providers (path, provider_id, repo_id, size_bytes, hash, external_id)
+        VALUES (?, ?, ?, ?, ?, ?)
         ON CONFLICT(path) DO UPDATE SET
           provider_id = excluded.provider_id,
           repo_id = excluded.repo_id,
           size_bytes = excluded.size_bytes,
-          hash = excluded.hash
-      `).bind(path, providerId, repoId || null, sizeBytes, hash || null),
+          hash = excluded.hash,
+          external_id = excluded.external_id
+      `).bind(path, providerId, repoId || null, sizeBytes, hash || null, externalId || null),
     ];
     return await db.batch(batch);
   },

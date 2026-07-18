@@ -1,5 +1,6 @@
 import { StorageProvider, ProviderResolver, ProviderConfig } from './types';
 import { GitHubProvider, GitHubProviderConfig } from './github/GitHubProvider';
+import { GoogleDriveProvider, GoogleDriveProviderConfig } from './googledrive/GoogleDriveProvider';
 import { dbService } from '../services/database';
 import { invalidateRepoCache } from '../services/repoRouter';
 import type { Bindings } from '../types/env';
@@ -71,8 +72,15 @@ export class ProviderRegistry implements ProviderResolver {
               case 'github':
                 provider = new GitHubProvider(row.id, settings as GitHubProviderConfig, env);
                 break;
+              case 'googledrive':
+                provider = new GoogleDriveProvider(row.id, {
+                  clientId: settings.clientId || env?.GOOGLE_DRIVE_CLIENT_ID || '',
+                  clientSecret: settings.clientSecret || env?.GOOGLE_DRIVE_CLIENT_SECRET || '',
+                  refreshToken: settings.refreshToken || env?.GOOGLE_DRIVE_REFRESH_TOKEN || '',
+                  folderId: settings.folderId || undefined,
+                } as GoogleDriveProviderConfig, db);
+                break;
               // Future: case 's3' → S3Provider
-              // Future: case 'googledrive' → GoogleDriveProvider
             }
 
             if (provider) {

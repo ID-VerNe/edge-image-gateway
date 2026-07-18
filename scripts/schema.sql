@@ -101,6 +101,7 @@ CREATE TABLE IF NOT EXISTS path_providers (
     repo_id TEXT,                  -- Kept for backward compatibility
     size_bytes INTEGER,
     hash TEXT,
+    external_id TEXT,              -- Provider-specific external file ID (e.g. Google Drive fileId)
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (provider_id) REFERENCES providers(id)
 );
