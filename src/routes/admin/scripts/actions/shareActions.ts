@@ -1,10 +1,13 @@
 export const SHARE_ACTIONS = `
   function copyLink(p) {
-    navigator.clipboard.writeText(window.location.origin + '/' + p);
+    let path = p;
+    try { path = decodeURIComponent(p); } catch(e) {}
+    navigator.clipboard.writeText(window.location.origin + '/' + path);
     showToast('Copied');
   }
 
   function showShareModal(path) {
+    try { path = decodeURIComponent(path); } catch(e) {}
     const modal = document.getElementById('shareModal');
     if(!modal) return;
     document.getElementById('shareFilePath').value = path;

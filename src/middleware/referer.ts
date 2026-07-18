@@ -1,6 +1,7 @@
 import { Context, Next } from 'hono';
 import { AppEnvironment } from '../types/env';
 import { logger } from '../utils/logger';
+import { normalizePath } from '../utils/path';
 
 /**
  * Hybrid Defense Referer Guard
@@ -10,12 +11,9 @@ import { logger } from '../utils/logger';
  */
 export const refererGuard = async (c: Context<AppEnvironment>, next: Next) => {
   const reqUrl = new URL(c.req.url);
-  // Normalize path: decode and ensure leading slash
-  let path = reqUrl.pathname;
-  try {
-    path = decodeURIComponent(path);
-  } catch (e) {}
-  if (!path.startsWith('/')) path = '/' + path;
+  const normalized = normalizePath(reqUrl.pathname);
+  if (!normalized) return c.text('Bad Request', 400);
+  const path = normalized;
 
   const sig = c.req.query('sig');
   const internalSig = c.req.query('__sig');

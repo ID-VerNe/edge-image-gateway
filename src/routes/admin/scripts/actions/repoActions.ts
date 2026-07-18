@@ -1,19 +1,19 @@
 export const REPO_ACTIONS = `
-  function showAddRepoModal() { 
+  function showAddRepoModal() {
     const modal = document.getElementById('addRepoModal');
     if(modal) {
       document.getElementById('repoOwner').value = window.DEFAULT_GITHUB_USER || '';
       document.getElementById('repoName').value = window.DEFAULT_GITHUB_REPO || '';
       document.getElementById('repoBranch').value = 'main';
       document.getElementById('repoSecret').value = 'GITHUB_TOKEN';
-      modal.style.display = 'flex'; 
+      modal.style.display = 'flex';
     }
   }
-  function hideAddRepoModal() { 
+  function hideAddRepoModal() {
     const modal = document.getElementById('addRepoModal');
-    if(modal) modal.style.display = 'none'; 
+    if(modal) modal.style.display = 'none';
   }
-  
+
   async function addRepo() {
     const body = {
       id: document.getElementById('repoId').value,
@@ -31,7 +31,7 @@ export const REPO_ACTIONS = `
       });
       const data = await res.json();
       if(!res.ok) throw new Error(data.error || 'Failed to register repo');
-      
+
       await loadRepos(data);
       await loadStats();
       hideAddRepoModal();
@@ -39,7 +39,9 @@ export const REPO_ACTIONS = `
     hideLoader();
   }
 
-  async function setWriteRepo(repoId) {
+  async function setWriteRepo(rawId) {
+    let repoId = rawId;
+    try { repoId = decodeURIComponent(rawId); } catch(e) {}
     showLoader('Switching write target...');
     try {
       const res = await fetch('/admin/api/repos/route/write', {
@@ -49,13 +51,17 @@ export const REPO_ACTIONS = `
       });
       const data = await res.json();
       await loadRepos(data);
-      await loadFiles(''); 
+      await loadFiles('');
       showToast('Write target switched to ' + repoId);
     } catch(e) { alert('Failed to switch write target'); }
     hideLoader();
   }
 
-  function showEditRepoModal(repo) {
+  function showEditRepoModal(raw) {
+    let repo = raw;
+    if (typeof raw === 'string') {
+      try { repo = JSON.parse(decodeURIComponent(raw)); } catch(e) {}
+    }
     const modal = document.getElementById('editRepoModal');
     if(modal) {
       document.getElementById('editRepoOldId').value = repo.id;
@@ -91,7 +97,7 @@ export const REPO_ACTIONS = `
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Update failed');
-      
+
       await loadRepos(data);
       hideEditRepoModal();
       showToast('Repository updated');
@@ -99,8 +105,10 @@ export const REPO_ACTIONS = `
     hideLoader();
   }
 
-  async function deleteRepo(id) {
-    const confirmText = prompt('This will only delete the mapping in KV. The GitHub repository will NOT be touched. \\nType the repository ID "' + id + '" to confirm deletion:');
+  async function deleteRepo(rawId) {
+    let id = rawId;
+    try { id = decodeURIComponent(rawId); } catch(e) {}
+    const confirmText = prompt('This will delete the repository mapping from the database. The GitHub repository will NOT be touched. \\nType the repository ID "' + id + '" to confirm deletion:');
     if (confirmText !== id) {
       if (confirmText !== null) alert('Confirmation failed. ID mismatch.');
       return;
@@ -108,7 +116,7 @@ export const REPO_ACTIONS = `
 
     showLoader('Deleting mapping...');
     try {
-      const res = await fetch(\`/admin/api/repos/\${id}\`, { method: 'DELETE' });
+      const res = await fetch(\`/admin/api/repos/\${encodeURIComponent(id)}\`, { method: 'DELETE' });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Delete failed');
 
@@ -127,13 +135,15 @@ export const REPO_ACTIONS = `
     showToast('Cache purge requested');
   }
 
-  async function syncRepo(id) {
+  async function syncRepo(rawId) {
+    let id = rawId;
+    try { id = decodeURIComponent(rawId); } catch(e) {}
     showLoader('Syncing with GitHub...');
     try {
-      const res = await fetch(\`/admin/api/repos/\${id}/sync\`, { method: 'POST' });
+      const res = await fetch(\`/admin/api/repos/\${encodeURIComponent(id)}/sync\`, { method: 'POST' });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Sync failed');
-      
+
       await loadRepos(data);
       await loadStats();
       showToast(\`Synced: \${data.fileCount} files, \${(data.sizeBytes / (1024*1024)).toFixed(2)} MB\`);
@@ -148,7 +158,7 @@ export const REPO_ACTIONS = `
       const res = await fetch('/admin/api/backfill/start', { method: 'POST' });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Backfill failed');
-      
+
       alert('Migration complete!\\nRepos: ' + data.results.repos + '\\nPaths: ' + data.results.paths + '\\nTokens: ' + data.results.tokens);
     } catch(e) { alert(e.message); }
     hideLoader();

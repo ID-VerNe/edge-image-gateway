@@ -2,6 +2,7 @@ import { Context, Next } from 'hono';
 import { AppEnvironment } from '../types/env';
 import { generateHMAC } from '../utils/hmac';
 import { logger } from '../utils/logger';
+import { normalizePathForHMAC } from '../utils/path';
 
 /**
  * Hardened Signature Middleware (Plan D Implementation)
@@ -12,12 +13,7 @@ import { logger } from '../utils/logger';
  */
 export const signatureGuard = async (c: Context<AppEnvironment>, next: Next) => {
   const reqUrl = new URL(c.req.url);
-  // Normalize path: decode and ensure leading slash
-  let path = reqUrl.pathname;
-  try {
-    path = decodeURIComponent(path);
-  } catch (e) {}
-  if (!path.startsWith('/')) path = '/' + path;
+  const path = normalizePathForHMAC(reqUrl.pathname) || '/';
 
   // 1. Skip for health check, root, or admin paths
   if (path === '/healthz' || path === '/' || path.startsWith('/admin')) {

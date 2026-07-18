@@ -14,6 +14,12 @@ const MAX_UPLOAD_SIZE = 25 * 1024 * 1024; // 25MB
 
 uploadApi.post('/', async (c) => {
   try {
+    // Pre-check Content-Length header to reject large uploads early
+    const contentLength = c.req.header('Content-Length');
+    if (contentLength && parseInt(contentLength, 10) > MAX_UPLOAD_SIZE) {
+      return c.json({ error: 'File too large (max 25MB)' }, 413);
+    }
+
     const body = await c.req.parseBody();
     const file = body['file'];
 
@@ -58,21 +64,6 @@ uploadApi.post('/', async (c) => {
         }
       } catch (e) {
         console.error('D1 deduplication check failed:', e);
-      }
-    }
-
-    // Fallback to KV for deduplication (transition phase)
-    if (dedupePolicy === 'reuse' && c.env.REPO_REGISTRY) {
-      const existing = await c.env.REPO_REGISTRY.get(`hash::${hash}`, 'json');
-      if (existing) {
-        const meta = existing as any;
-        const repoForOld = await resolveForRead(meta.path, c.env);
-        const exists = await githubService.fileExists(meta.path, repoForOld);
-        if (exists) {
-          return c.json({ ...meta, deduplicated: true });
-        } else {
-          await c.env.REPO_REGISTRY.delete(`hash::${hash}`);
-        }
       }
     }
 

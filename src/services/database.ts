@@ -1,5 +1,6 @@
 import { Bindings } from '../types/env';
 import { RepoMeta } from './repoRouter';
+import { ProviderConfig } from '../providers/types';
 
 /**
  * Service for interacting with Cloudflare D1 SQL database.
@@ -133,6 +134,26 @@ export const dbService = {
   },
 
   /**
+   * Get a migration task by ID.
+   */
+  getTask: async (db: D1Database, taskId: string) => {
+    const r: any = await db.prepare(`SELECT * FROM migration_tasks WHERE id = ?`).bind(taskId).first();
+    if (!r) return null;
+    return {
+      id: r.id,
+      sourcePath: r.source_path,
+      targetPath: r.target_path,
+      status: r.status,
+      fileSize: r.file_size,
+      sourceRepoId: r.source_repo_id,
+      targetRepoId: r.target_repo_id,
+      error: r.error,
+      startTime: new Date(r.start_time).getTime(),
+      lastUpdate: new Date(r.last_update).getTime(),
+    };
+  },
+
+  /**
    * Upsert an auth token.
    */
   upsertToken: async (db: D1Database, token: string, name: string, createdAt: string, permissions: string[] = ['read', 'write', 'delete'], pathPrefix?: string, expiresAt?: string) => {
@@ -205,5 +226,117 @@ export const dbService = {
   getConfig: async (db: D1Database, key: string): Promise<string | null> => {
     const res: any = await db.prepare(`SELECT value FROM system_config WHERE key = ?`).bind(key).first();
     return res ? res.value : null;
+  },
+
+  /**
+   * Get recent audit logs, newest first.
+   */
+  getAuditLogs: async (db: D1Database, limit: number = 50) => {
+    const { results } = await db.prepare(
+      `SELECT ts, user_email, action, ip, details FROM audit_logs ORDER BY ts DESC LIMIT ?`
+    ).bind(limit).all();
+    return results.map((r: any) => {
+      const row: Record<string, any> = {
+        ts: r.ts,
+        user: r.user_email,
+        action: r.action,
+        ip: r.ip,
+      };
+      const details = r.details ? (typeof r.details === 'string' ? JSON.parse(r.details) : r.details) : {};
+      for (const k of Object.keys(details)) {
+        row[k] = details[k];
+      }
+      return row;
+    });
+  },
+
+  /**
+   * Get all storage providers from the `providers` table.
+   */
+  getAllProviders: async (db: D1Database): Promise<ProviderConfig[]> => {
+    const { results } = await db.prepare(`SELECT * FROM providers`).all();
+    return results.map((r: any) => ({
+      id: r.id,
+      type: r.type,
+      name: r.name,
+      status: r.status,
+      capacityLimitBytes: r.capacity_limit_bytes,
+      usedBytes: r.used_bytes,
+      fileCount: r.file_count,
+      settings: JSON.parse(r.config || '{}'),
+    }));
+  },
+
+  /**
+   * Upsert a storage provider.
+   */
+  upsertProvider: async (db: D1Database, provider: ProviderConfig) => {
+    return await db.prepare(`
+      INSERT INTO providers (id, type, name, config, status, capacity_limit_bytes, used_bytes, file_count)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(id) DO UPDATE SET
+        type = excluded.type,
+        name = excluded.name,
+        config = excluded.config,
+        status = excluded.status,
+        capacity_limit_bytes = excluded.capacity_limit_bytes,
+        used_bytes = excluded.used_bytes,
+        file_count = excluded.file_count
+    `).bind(
+      provider.id,
+      provider.type,
+      provider.name,
+      JSON.stringify(provider.settings),
+      provider.status,
+      provider.capacityLimitBytes,
+      provider.usedBytes,
+      provider.fileCount
+    ).run();
+  },
+
+  /**
+   * Record file addition with provider_id support.
+   */
+  recordFileAdditionV2: async (db: D1Database, path: string, providerId: string, sizeBytes: number, hash?: string, repoId?: string) => {
+    const batch = [
+      db.prepare(`
+        UPDATE providers
+        SET used_bytes = used_bytes + ?, file_count = file_count + 1
+        WHERE id = ?
+      `).bind(sizeBytes, providerId),
+      db.prepare(`
+        INSERT INTO path_providers (path, provider_id, repo_id, size_bytes, hash)
+        VALUES (?, ?, ?, ?, ?)
+        ON CONFLICT(path) DO UPDATE SET
+          provider_id = excluded.provider_id,
+          repo_id = excluded.repo_id,
+          size_bytes = excluded.size_bytes,
+          hash = excluded.hash
+      `).bind(path, providerId, repoId || null, sizeBytes, hash || null),
+    ];
+    return await db.batch(batch);
+  },
+
+  /**
+   * Record file deletion with provider_id support.
+   */
+  recordFileDeletionV2: async (db: D1Database, path: string, providerId: string, sizeBytes: number) => {
+    const batch = [
+      db.prepare(`
+        UPDATE providers
+        SET used_bytes = MAX(0, used_bytes - ?), file_count = MAX(0, file_count - 1)
+        WHERE id = ?
+      `).bind(sizeBytes, providerId),
+      db.prepare(`DELETE FROM path_providers WHERE path = ?`).bind(path),
+    ];
+    return await db.batch(batch);
+  },
+
+  /**
+   * Get the provider_id for a given path from path_providers.
+   */
+  getPathProviderId: async (db: D1Database, path: string): Promise<string | null> => {
+    const res: any = await db.prepare(`SELECT provider_id FROM path_providers WHERE path = ?`).bind(path).first();
+    return res ? res.provider_id : null;
   }
 };

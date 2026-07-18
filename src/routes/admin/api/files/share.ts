@@ -1,6 +1,7 @@
 import { Hono } from 'hono';
 import { AppEnvironment } from '../../../../types/env';
 import { generateHMAC } from '../../../../utils/hmac';
+import { normalizePathForHMAC } from '../../../../utils/path';
 
 const shareApi = new Hono<AppEnvironment>();
 
@@ -13,7 +14,8 @@ shareApi.post('/', async (c) => {
     if (!secret) return c.json({ error: 'SIGN_SECRET not configured' }, 500);
 
     const exp = Math.floor(Date.now() / 1000) + (expires || 86400);
-    const normalizedPath = path.startsWith('/') ? path : `/${path}`;
+    const normalizedPath = normalizePathForHMAC(path);
+    if (!normalizedPath) return c.json({ error: 'Invalid path' }, 400);
     const message = `${normalizedPath}|${exp}`;
     const sig = await generateHMAC(message, secret);
 

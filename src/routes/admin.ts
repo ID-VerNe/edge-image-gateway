@@ -7,6 +7,8 @@ import { CSS } from './admin/styles';
 import { PARTIALS } from './admin/partials';
 import { SCRIPTS } from './admin/scripts';
 
+import { escapeHtml } from '../utils/escape';
+
 // Import Sub-Routers
 import repoApi from './admin/api/repos';
 import fileApi from './admin/api/files';
@@ -14,6 +16,7 @@ import uploadApi from './admin/api/upload';
 import statsApi from './admin/api/stats';
 import auditApi from './admin/api/audit';
 import backfillApi from './admin/api/backfill';
+import providersApi from './admin/api/providers';
 
 const adminApp = new Hono<AppEnvironment>();
 
@@ -35,6 +38,7 @@ adminApp.route('/api/upload', uploadApi);
 adminApp.route('/api/stats', statsApi);
 adminApp.route('/api/audit', auditApi);
 adminApp.route('/api/backfill', backfillApi);
+adminApp.route('/api/providers', providersApi);
 
 // Cache Purge
 adminApp.post('/api/cache/purge', async (c) => {
@@ -80,7 +84,7 @@ adminApp.get('/', (c) => {
     <html lang="zh-CN">
     <head>
       <meta charset="utf-8">
-      <title>${appTitle} - Admin</title>
+      <title>${escapeHtml(appTitle)} - Admin</title>
       <meta name="viewport" content="width=device-width, initial-scale=1.0">
       <link rel="icon" type="image/png" href="/favicon.png">
       <link rel="shortcut icon" href="/favicon.ico">
@@ -96,6 +100,7 @@ adminApp.get('/', (c) => {
         ${PARTIALS.sidebar(appTitle)}
         ${PARTIALS.mainFiles}
         ${PARTIALS.mainRepos}
+        ${PARTIALS.mainProviders}
         ${PARTIALS.mainTokens}
         ${PARTIALS.mainAudit}
       </div>
@@ -103,8 +108,8 @@ adminApp.get('/', (c) => {
       ${PARTIALS.modals}
 
       <script>
-        window.DEFAULT_GITHUB_USER = "${c.env.GITHUB_USER}";
-        window.DEFAULT_GITHUB_REPO = "${c.env.GITHUB_REPO}";
+        window.DEFAULT_GITHUB_USER = ${JSON.stringify(c.env.GITHUB_USER)};
+        window.DEFAULT_GITHUB_REPO = ${JSON.stringify(c.env.GITHUB_REPO)};
         ${SCRIPTS}
       </script>
     </body>

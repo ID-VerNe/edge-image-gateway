@@ -7,17 +7,11 @@ import { logger } from '../utils/logger';
 import { generateHMAC } from '../utils/hmac';
 import { recordCacheVariant } from '../utils/cache';
 import { r2Cache } from '../utils/r2Cache';
+import { normalizePath } from '../utils/path';
 
 export const handleImageRequest = async (c: Context<AppEnvironment>) => {
   const reqUrl = new URL(c.req.url);
-  // Normalize path: decode and ensure leading slash
-  let path = reqUrl.pathname;
-  try {
-    path = decodeURIComponent(path);
-  } catch (e) {}
-  if (!path.startsWith('/')) path = '/' + path;
-  
-  // 1. Handle root path
+  let path = normalizePath(reqUrl.pathname) || '/';
   if (path === '/') {
     const title = c.env.APP_TITLE || 'Edge Image Gateway';
     const desc = c.env.APP_DESCRIPTION || 'Ready to serve images.';
@@ -103,18 +97,19 @@ export const handleImageRequest = async (c: Context<AppEnvironment>) => {
     `);
   }
 
-  if (path.includes('..')) {
-    return c.text('Bad Request', 400);
-  }
 
   // 2. Check for Internal Loopback (to bypass resizing proxy header loss)
   const isInternal = reqUrl.searchParams.get('__internal_loopback') === 'true';
   const internalSig = reqUrl.searchParams.get('__sig');
+  const isImage = /\.(jpg|jpeg|png|webp|avif|gif|svg)$/i.test(path);
 
   if (isInternal && internalSig) {
     // Verify internal signature to prevent abuse
     const expectedSig = await generateHMAC(path, c.env.SIGN_SECRET);
     if (internalSig === expectedSig) {
+      // Only image paths should use loopback; non-image loopbacks are invalid
+      if (!isImage) return c.text('Bad Request', 400);
+
       // For GitHub API, we need to strip the leading slash
       const ghPath = path.replace(/^\/+/, '');
       const repo = await resolveForRead(ghPath, c.env, (p) => c.executionCtx.waitUntil(p));
@@ -141,7 +136,6 @@ export const handleImageRequest = async (c: Context<AppEnvironment>) => {
   const height = reqUrl.searchParams.get('h');
   const quality = reqUrl.searchParams.get('q');
   const fit = reqUrl.searchParams.get('fit') as any;
-  const isImage = /\.(jpg|jpeg|png|webp|avif|gif|svg)$/i.test(path);
   const isResizing = !!(width || height || quality || fit);
 
   // Determine cache key
@@ -218,18 +212,16 @@ export const handleImageRequest = async (c: Context<AppEnvironment>) => {
     }
 
     const status = finalResponse.status;
-    let ttl = 0;
 
-    if (status === 200) {
-      ttl = parseInt(c.env.CACHE_TTL_SECONDS || '604800', 10);
-    } else if (status === 404) {
-      ttl = 60;
-    } else if (status === 401 || status === 403) {
-      return c.text('Forbidden: Origin Access Denied', 403);
-    } else if (status >= 500) {
-      return c.text('Bad Gateway: Origin Server Error', 502);
+    // Non-200: return minimal response, no caching or body processing
+    if (status !== 200) {
+      if (status === 404) return c.text('Not Found', 404);
+      if (status === 401 || status === 403) return c.text('Forbidden: Origin Access Denied', 403);
+      if (status >= 500) return c.text('Bad Gateway: Origin Server Error', 502);
+      return c.text('Origin Error', 502);
     }
 
+    const ttl = parseInt(c.env.CACHE_TTL_SECONDS || '604800', 10);
     const responseHeaders = new Headers(finalResponse.headers);
     responseHeaders.delete('Server');
     responseHeaders.delete('Set-Cookie');
@@ -246,31 +238,23 @@ export const handleImageRequest = async (c: Context<AppEnvironment>) => {
     headersToDelete.forEach(key => responseHeaders.delete(key));
 
     let detectedMime = getMimeType(ghPath);
-    if (status === 200) {
-      const currentType = responseHeaders.get('Content-Type');
-      // STRICT OVERRIDE: If origin returned JSON for an image path, force the correct MIME
-      if (!currentType || currentType.includes('application/json') || currentType.includes('application/vnd.github') || currentType === 'application/octet-stream') {
-        responseHeaders.set('Content-Type', detectedMime);
-      } else {
-        detectedMime = currentType;
-      }
-      responseHeaders.set('Vary', 'Accept');
-    } else if (status === 404) {
-      responseHeaders.set('Content-Type', 'text/plain');
+    const currentType = responseHeaders.get('Content-Type');
+    // STRICT OVERRIDE: If origin returned JSON for an image path, force the correct MIME
+    if (!currentType || currentType.includes('application/json') || currentType.includes('application/vnd.github') || currentType === 'application/octet-stream') {
+      responseHeaders.set('Content-Type', detectedMime);
+    } else {
+      detectedMime = currentType;
     }
-    
-    if (ttl > 0) {
-      responseHeaders.set('Cache-Control', `public, max-age=${ttl}, s-maxage=${ttl}, immutable`);
-    }
-    
+    responseHeaders.set('Vary', 'Accept');
+    responseHeaders.set('Cache-Control', `public, max-age=${ttl}, s-maxage=${ttl}, immutable`);
     responseHeaders.set('X-Content-Type-Options', 'nosniff');
     responseHeaders.set('X-Cache', 'MISS');
 
     let responseBody: any = finalResponse.body;
-    if (status === 200 && isImage) {
+    if (isImage) {
       const buffer = await finalResponse.arrayBuffer();
       responseBody = buffer;
-      
+
       c.executionCtx.waitUntil((async () => {
         try {
           await r2Cache.put(c.env, r2Key, buffer, detectedMime);
@@ -282,15 +266,13 @@ export const handleImageRequest = async (c: Context<AppEnvironment>) => {
     }
 
     const outputResponse = new Response(responseBody, {
-      status: status === 200 ? 200 : status,
+      status: 200,
       headers: responseHeaders
     });
 
-    if (ttl > 0) {
-      c.executionCtx.waitUntil(cache.put(cacheKey, outputResponse.clone()));
-      if (reqUrl.search) {
-        c.executionCtx.waitUntil(recordCacheVariant(ghPath, reqUrl.toString(), c.env));
-      }
+    c.executionCtx.waitUntil(cache.put(cacheKey, outputResponse.clone()));
+    if (reqUrl.search) {
+      c.executionCtx.waitUntil(recordCacheVariant(ghPath, reqUrl.toString(), c.env));
     }
 
     const duration = Date.now() - startTime;

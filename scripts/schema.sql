@@ -47,6 +47,7 @@ CREATE TABLE IF NOT EXISTS audit_logs (
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 CREATE INDEX IF NOT EXISTS idx_audit_logs_created_at ON audit_logs(created_at);
+CREATE INDEX IF NOT EXISTS idx_audit_logs_ts ON audit_logs(ts);
 CREATE INDEX IF NOT EXISTS idx_audit_logs_action ON audit_logs(action);
 
 -- Migration Tasks (File Move/Rename)
@@ -69,6 +70,41 @@ CREATE TABLE IF NOT EXISTS system_config (
     value TEXT NOT NULL,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
+
+-- Cache Variants (tracking URL variants for granular purge)
+CREATE TABLE IF NOT EXISTS cache_variants (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    path TEXT NOT NULL,
+    variant_url TEXT NOT NULL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(path, variant_url)
+);
+CREATE INDEX IF NOT EXISTS idx_cache_variants_path ON cache_variants(path);
+
+-- Storage Providers (Phase 4: pluggable backend architecture)
+CREATE TABLE IF NOT EXISTS providers (
+    id TEXT PRIMARY KEY,
+    type TEXT NOT NULL,           -- 'github' | 's3' | 'googledrive' | 'memory'
+    name TEXT NOT NULL,           -- Display name
+    config TEXT NOT NULL,         -- JSON: provider-specific settings
+    status TEXT NOT NULL DEFAULT 'active',
+    capacity_limit_bytes INTEGER NOT NULL DEFAULT 5368709120,
+    used_bytes INTEGER NOT NULL DEFAULT 0,
+    file_count INTEGER NOT NULL DEFAULT 0,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Provider-level path mappings (extends `paths` with provider_id)
+CREATE TABLE IF NOT EXISTS path_providers (
+    path TEXT PRIMARY KEY,
+    provider_id TEXT NOT NULL,
+    repo_id TEXT,                  -- Kept for backward compatibility
+    size_bytes INTEGER,
+    hash TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (provider_id) REFERENCES providers(id)
+);
+CREATE INDEX IF NOT EXISTS idx_path_providers_provider_id ON path_providers(provider_id);
 
 -- Initial Data (Optional - e.g. current_write placeholder)
 -- INSERT OR IGNORE INTO system_config (key, value) VALUES ('route::current_write', 'fallback');

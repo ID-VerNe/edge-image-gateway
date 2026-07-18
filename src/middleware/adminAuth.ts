@@ -23,11 +23,6 @@ export const adminAuthGuard: MiddlewareHandler<AppEnvironment> = async (c, next)
       }
     }
 
-    // Fallback to KV
-    if (!tokenInfo && c.env.REPO_REGISTRY) {
-      tokenInfo = await c.env.REPO_REGISTRY.get(`auth::token::${token}`, 'json');
-    }
-
     if (tokenInfo) {
       // Expiry check
       if (tokenInfo.expiresAt && Date.now() > new Date(tokenInfo.expiresAt).getTime()) {

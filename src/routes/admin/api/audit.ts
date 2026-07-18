@@ -1,26 +1,21 @@
 import { Hono } from 'hono';
 import { AppEnvironment } from '../../../types/env';
+import { dbService } from '../../../services/database';
 
 const auditApi = new Hono<AppEnvironment>();
 
 auditApi.get('/', async (c) => {
-  const kv = c.env.REPO_REGISTRY;
-  if (!kv) return c.json({ error: 'KV not configured' }, 400);
+  // Read audit logs from D1 (primary), not KV
+  if (!c.env.DB) {
+    return c.json({ error: 'D1 not configured' }, 400);
+  }
 
-  // List all audit keys, sorted by timestamp descending
-  // KV lists alphabetically, so audit::[timestamp] will be ascending.
-  // We'll reverse it manually or use prefix listing.
-  const list = await kv.list({ prefix: 'audit::' });
-  const keys = list.keys.reverse(); // Newest first
-
-  const logs = await Promise.all(
-    keys.slice(0, 50).map(async (key) => {
-      const data = await kv.get(key.name, 'json');
-      return data;
-    })
-  );
-
-  return c.json({ logs });
+  try {
+    const logs = await dbService.getAuditLogs(c.env.DB, 50);
+    return c.json({ logs });
+  } catch (err: any) {
+    return c.json({ error: 'Failed to query audit logs', message: err.message }, 500);
+  }
 });
 
 export default auditApi;

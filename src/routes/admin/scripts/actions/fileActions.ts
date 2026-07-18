@@ -1,13 +1,13 @@
 export const FILE_ACTIONS = `
-  function showNewFolderModal() { 
+  function showNewFolderModal() {
     const modal = document.getElementById('newFolderModal');
-    if(modal) modal.style.display = 'flex'; 
+    if(modal) modal.style.display = 'flex';
   }
-  function hideNewFolderModal() { 
+  function hideNewFolderModal() {
     const modal = document.getElementById('newFolderModal');
-    if(modal) modal.style.display = 'none'; 
+    if(modal) modal.style.display = 'none';
   }
-  
+
   async function createNewFolder() {
     const el = document.getElementById('newFolderName');
     if(!el) return;
@@ -30,6 +30,7 @@ export const FILE_ACTIONS = `
   }
 
   async function deleteItem(p, type) {
+    try { p = decodeURIComponent(p); } catch(e) {}
     if(!confirm(\`Permanently delete this \${type}?\`)) return;
     showLoader('Deleting...');
     try {
@@ -37,10 +38,10 @@ export const FILE_ACTIONS = `
       const res = await fetch(url, { method: 'DELETE' });
       if (!res.ok) throw new Error('Delete failed');
       showToast(\`Item deleted\`);
-    } catch(e) { 
-      alert('Delete failed: ' + e.message); 
+    } catch(e) {
+      alert('Delete failed: ' + e.message);
     }
-    hideLoader(); 
+    hideLoader();
     loadFiles(currentPath);
   }
 
@@ -53,9 +54,6 @@ export const FILE_ACTIONS = `
     for (const p of selectedFiles) {
       updateProgress((i / selectedFiles.size) * 100, \`Deleting \${i+1}/\${selectedFiles.size}\`);
       try {
-        // We don't easily know the type here, but most bulk deletes are files.
-        // If it's a folder, it might fail or we'd need to check the file list state.
-        // For safety, let's assume it's a file unless it ends with a slash or we add logic.
         await fetch('/admin/api/files/' + encodeURIComponent(p), { method: 'DELETE' });
       } catch(e) {}
       i++;
@@ -81,7 +79,7 @@ export const FILE_ACTIONS = `
     const s = document.getElementById('renameSearch').value;
     const r = document.getElementById('renameReplace').value;
     if(!s && !r) return;
-    
+
     hideBatchRenameModal();
     showLoader('Renaming...');
     showProgress(true);
@@ -96,7 +94,7 @@ export const FILE_ACTIONS = `
           await fetch('/admin/api/files/mutate', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ 
+            body: JSON.stringify({
               action: 'rename',
               path: p,
               newPath: targetPath
@@ -114,24 +112,27 @@ export const FILE_ACTIONS = `
   }
 
   // Lightbox functions
-  function openLightbox(p, url) {
+  function openLightbox(encodedP, url) {
+    let p = encodedP;
+    try { p = decodeURIComponent(encodedP); } catch(e) {}
+
     const lb = document.getElementById('lightbox');
     const img = document.getElementById('lightbox-img');
     const filename = document.getElementById('lightbox-filename');
-    
+
     if(!lb || !img || !filename) return;
-    
-    filename.innerText = p.split('/').pop();
+
+    filename.textContent = p.split('/').pop();
     img.src = url;
-    
+
     // Copy inputs
     const directUrl = window.location.origin + url;
-    document.getElementById('copy-markdown').value = \`![\${filename.innerText}](\${directUrl})\`;
+    document.getElementById('copy-markdown').value = \`![\${p.split('/').pop()}](\${directUrl})\`;
     document.getElementById('copy-raw').value = directUrl;
-    document.getElementById('copy-html').value = \`<img src="\${directUrl}" alt="\${filename.innerText}">\`;
+    document.getElementById('copy-html').value = \`<img src="\${directUrl}" alt="\${p.split('/').pop()}">\`;
     document.getElementById('copy-bbcode').value = \`[img]\${directUrl}[/img]\`;
     document.getElementById('copy-signed').value = ''; // Clear until generated
-    
+
     lb.style.display = 'flex';
     currentLightboxPath = p;
   }
@@ -148,7 +149,7 @@ export const FILE_ACTIONS = `
     btn.disabled = true;
     const oldText = btn.innerText;
     btn.innerText = '...';
-    
+
     try {
       const res = await fetch('/admin/api/files/sign', {
         method: 'POST',
@@ -174,16 +175,16 @@ export const FILE_ACTIONS = `
     showToast('Signed URL Copied');
   }
 
-  function showMoveModal() { 
+  function showMoveModal() {
     if (selectedFiles.size === 0) return;
     const modal = document.getElementById('moveModal');
-    if(modal) modal.style.display = 'flex'; 
+    if(modal) modal.style.display = 'flex';
   }
-  function hideMoveModal() { 
+  function hideMoveModal() {
     const modal = document.getElementById('moveModal');
-    if(modal) modal.style.display = 'none'; 
+    if(modal) modal.style.display = 'none';
   }
-  
+
   async function bulkMove() {
     const el = document.getElementById('moveTargetPath');
     if(!el) return;
@@ -195,7 +196,7 @@ export const FILE_ACTIONS = `
     for (const p of selectedFiles) {
       updateProgress((i / selectedFiles.size) * 100, \`Moving \${i+1}/\${selectedFiles.size}\`);
       try {
-        await fetch('/admin/api/files/' + encodeURIComponent(p) + '/move', { 
+        await fetch('/admin/api/files/' + encodeURIComponent(p) + '/move', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ targetDir })

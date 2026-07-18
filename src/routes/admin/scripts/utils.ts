@@ -1,4 +1,18 @@
 export const UTILS = `
+  // Escape a string for safe insertion into HTML text content
+  function eHtml(str) {
+    if (!str) return '';
+    const d = document.createElement('div');
+    d.textContent = str;
+    return d.innerHTML;
+  }
+
+  // Escape a string for safe insertion into a URL path inside an HTML attribute
+  function eUrl(str) {
+    if (!str) return '';
+    return encodeURI(str).replace(/'/g, '%27').replace(/"/g, '%22');
+  }
+
   function showToast(m) {
     const t = document.getElementById('toast'); 
     if (!t) return;

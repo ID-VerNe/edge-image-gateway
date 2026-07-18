@@ -1,15 +1,17 @@
+import { escapeHtml } from '../../utils/escape';
+
 export const PARTIALS = {
   header: (userEmail: string, appTitle: string) => {
     const userName = userEmail.split('@')[0];
     const userInitial = userName.charAt(0).toUpperCase();
     return `
       <header>
-        <div class="logo" onclick="location.reload()">${appTitle}</div>
+        <div class="logo" onclick="location.reload()">${escapeHtml(appTitle)}</div>
         <div class="user-capsule">
-          <div class="user-avatar">${userInitial}</div>
+          <div class="user-avatar">${escapeHtml(userInitial)}</div>
           <div class="user-details">
-            <div class="user-name">${userName}</div>
-            <div class="user-email">${userEmail}</div>
+            <div class="user-name">${escapeHtml(userName)}</div>
+            <div class="user-email">${escapeHtml(userEmail)}</div>
           </div>
         </div>
       </header>
@@ -42,11 +44,15 @@ export const PARTIALS = {
             <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
             Settings
           </div>
+          <div class="tree-item" id="nav-providers" onclick="switchView('providers')">
+            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path><polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline><line x1="12" y1="22.08" x2="12" y2="12"></line></svg>
+            Providers
+          </div>
         </div>
       </div>
       <div class="sidebar-footer">
         <div style="font-size: 0.75rem; color: var(--text-2); text-align: center; font-weight: 500;">
-          ${appTitle}
+          ${escapeHtml(appTitle)}
         </div>
       </div>
     </aside>
@@ -142,6 +148,22 @@ export const PARTIALS = {
 
          <h3 style="margin-bottom: 1.5rem; letter-spacing: -0.01em;">Managed Repositories</h3>
          <div id="repo-settings-list" style="display: grid; gap: 1rem;"></div>
+      </div>
+    </main>
+  `,
+  mainProviders: `
+    <main id="main-providers" style="display: none;">
+      <div class="toolbar">
+        <div class="breadcrumbs"><span class="breadcrumb-item current">Storage Providers</span></div>
+        <div class="actions">
+          <button class="btn btn-primary" onclick="showAddProviderModal()">Add Provider</button>
+        </div>
+      </div>
+      <div class="content-area">
+         <h3 style="margin-bottom: 1.5rem; letter-spacing: -0.01em;">Configured Providers</h3>
+         <div id="provider-list" style="display: grid; gap: 1rem;">
+           <div style="padding:3rem; text-align:center; color:var(--text-2);">Loading providers...</div>
+         </div>
       </div>
     </main>
   `,
@@ -423,6 +445,85 @@ export const PARTIALS = {
         <div style="display:flex; justify-content:flex-end; gap:0.75rem;">
           <button class="btn" onclick="hideShareModal()">Close</button>
           <button class="btn btn-primary" id="btn-generate-share" onclick="generateShareLink()">Generate & Copy</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Add Provider Modal -->
+    <div class="modal" id="addProviderModal">
+      <div class="modal-content" style="width:540px;">
+        <h3>Add Storage Provider</h3>
+        <div style="display:grid; gap:1.25rem; margin-top:1.5rem;">
+          <div>
+            <label style="display:block; font-size:0.75rem; color:var(--text-2); font-weight:600; text-transform:uppercase; margin-bottom:0.5rem;">Provider ID</label>
+            <input type="text" id="providerId" placeholder="e.g. github-main" style="width:100%; padding:0.75rem; border:1px solid var(--border); border-radius:var(--radius-sm);">
+          </div>
+          <div>
+            <label style="display:block; font-size:0.75rem; color:var(--text-2); font-weight:600; text-transform:uppercase; margin-bottom:0.5rem;">Display Name</label>
+            <input type="text" id="providerName" placeholder="e.g. GitHub Main" style="width:100%; padding:0.75rem; border:1px solid var(--border); border-radius:var(--radius-sm);">
+          </div>
+          <div>
+            <label style="display:block; font-size:0.75rem; color:var(--text-2); font-weight:600; text-transform:uppercase; margin-bottom:0.5rem;">Type</label>
+            <select id="providerType" style="width:100%; padding:0.75rem; border:1px solid var(--border); border-radius:var(--radius-sm);" onchange="toggleProviderSettingsHint()">
+              <option value="github">GitHub</option>
+              <option value="s3">S3 / R2</option>
+              <option value="googledrive">Google Drive</option>
+              <option value="memory">Memory (Dev)</option>
+            </select>
+          </div>
+          <div>
+            <label style="display:block; font-size:0.75rem; color:var(--text-2); font-weight:600; text-transform:uppercase; margin-bottom:0.5rem;">Settings (JSON)</label>
+            <textarea id="providerSettings" style="width:100%; min-height:100px; padding:0.75rem; border:1px solid var(--border); border-radius:var(--radius-sm); font-family:monospace; font-size:0.75rem;" placeholder="{}"></textarea>
+            <div id="providerSettingsHint" style="font-size:0.75rem; color:var(--text-2); margin-top:0.5rem; white-space:pre-wrap;">Example: {"owner": "...", "repo": "...", "branch": "main", "tokenSecretName": "GITHUB_TOKEN"}</div>
+          </div>
+        </div>
+        <div style="display:flex; justify-content:flex-end; gap:0.75rem; margin-top:2rem;">
+          <button class="btn" onclick="hideAddProviderModal()">Cancel</button>
+          <button class="btn btn-primary" onclick="addProvider()">Add Provider</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Edit Provider Modal -->
+    <div class="modal" id="editProviderModal">
+      <div class="modal-content" style="width:540px;">
+        <h3>Edit Provider</h3>
+        <input type="hidden" id="editProviderId">
+        <div style="display:grid; gap:1.25rem; margin-top:1.5rem;">
+          <div>
+            <label style="display:block; font-size:0.75rem; color:var(--text-2); font-weight:600; text-transform:uppercase; margin-bottom:0.5rem;">Display Name</label>
+            <input type="text" id="editProviderName" style="width:100%; padding:0.75rem; border:1px solid var(--border); border-radius:var(--radius-sm);">
+          </div>
+          <div>
+            <label style="display:block; font-size:0.75rem; color:var(--text-2); font-weight:600; text-transform:uppercase; margin-bottom:0.5rem;">Type</label>
+            <select id="editProviderType" style="width:100%; padding:0.75rem; border:1px solid var(--border); border-radius:var(--radius-sm);">
+              <option value="github">GitHub</option>
+              <option value="s3">S3 / R2</option>
+              <option value="googledrive">Google Drive</option>
+              <option value="memory">Memory (Dev)</option>
+            </select>
+          </div>
+          <div>
+            <label style="display:block; font-size:0.75rem; color:var(--text-2); font-weight:600; text-transform:uppercase; margin-bottom:0.5rem;">Status</label>
+            <select id="editProviderStatus" style="width:100%; padding:0.75rem; border:1px solid var(--border); border-radius:var(--radius-sm);">
+              <option value="active">Active</option>
+              <option value="readonly">Read-Only</option>
+              <option value="draining">Draining</option>
+              <option value="archived">Archived</option>
+            </select>
+          </div>
+          <div>
+            <label style="display:block; font-size:0.75rem; color:var(--text-2); font-weight:600; text-transform:uppercase; margin-bottom:0.5rem;">Capacity (Bytes)</label>
+            <input type="number" id="editProviderCapacity" style="width:100%; padding:0.75rem; border:1px solid var(--border); border-radius:var(--radius-sm);">
+          </div>
+          <div>
+            <label style="display:block; font-size:0.75rem; color:var(--text-2); font-weight:600; text-transform:uppercase; margin-bottom:0.5rem;">Settings (JSON)</label>
+            <textarea id="editProviderSettings" style="width:100%; min-height:120px; padding:0.75rem; border:1px solid var(--border); border-radius:var(--radius-sm); font-family:monospace; font-size:0.75rem;"></textarea>
+          </div>
+        </div>
+        <div style="display:flex; justify-content:flex-end; gap:0.75rem; margin-top:2rem;">
+          <button class="btn" onclick="hideEditProviderModal()">Cancel</button>
+          <button class="btn btn-primary" onclick="updateProvider()">Save Changes</button>
         </div>
       </div>
     </div>

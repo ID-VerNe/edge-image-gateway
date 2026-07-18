@@ -1,5 +1,6 @@
 export const SELECTION = `
   function toggleSelection(path) {
+    try { path = decodeURIComponent(path); } catch(e) {}
     if (selectedFiles.has(path)) selectedFiles.delete(path);
     else selectedFiles.add(path);
     updateBulkToolbar();
@@ -9,7 +10,9 @@ export const SELECTION = `
     const checkboxes = document.querySelectorAll('.file-checkbox');
     checkboxes.forEach(cb => {
       cb.checked = true;
-      const path = cb.getAttribute('onchange').match(/'([^']+)'/)[1];
+      const raw = cb.getAttribute('onchange').match(/'([^']+)'/)[1];
+      let path = raw;
+      try { path = decodeURIComponent(raw); } catch(e) {}
       selectedFiles.add(path);
     });
     updateBulkToolbar();
@@ -24,7 +27,9 @@ export const SELECTION = `
   function selectInvert() {
     const checkboxes = document.querySelectorAll('.file-checkbox');
     checkboxes.forEach(cb => {
-      const path = cb.getAttribute('onchange').match(/'([^']+)'/)[1];
+      const raw = cb.getAttribute('onchange').match(/'([^']+)'/)[1];
+      let path = raw;
+      try { path = decodeURIComponent(raw); } catch(e) {}
       if (selectedFiles.has(path)) {
         selectedFiles.delete(path);
         cb.checked = false;
