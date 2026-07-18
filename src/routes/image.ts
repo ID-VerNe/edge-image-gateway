@@ -202,7 +202,7 @@ export const handleImageRequest = async (c: Context<AppEnvironment>) => {
         cf: cfOptions 
       });
       
-      if (finalResponse.status === 415 || finalResponse.status === 400) {
+      if (finalResponse.status === 415 || finalResponse.status === 400 || finalResponse.status === 502) {
         repo = await resolveForRead(ghPath, c.env, (p) => c.executionCtx.waitUntil(p));
         finalResponse = await fetchFromGitHub(ghPath, repo, undefined, c.env, c.executionCtx);
       }
