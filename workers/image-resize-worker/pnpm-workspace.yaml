@@ -1,0 +1,5 @@
+allowBuilds:
+  '@stacksjs/ts-webp': set this to true or false
+  esbuild: false
+  sharp: false
+  workerd: false

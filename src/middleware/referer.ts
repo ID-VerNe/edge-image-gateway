@@ -9,6 +9,7 @@ import { normalizePath } from '../utils/path';
  * 2. Enforces ALLOWED_REFERERS whitelist for general image access.
  * 3. Handles empty Referer using Sec-Fetch-Dest: image to allow legitimate browser loads while blocking tools.
  */
+// @lat: [[referer]]
 export const refererGuard = async (c: Context<AppEnvironment>, next: Next) => {
   const reqUrl = new URL(c.req.url);
   const normalized = normalizePath(reqUrl.pathname);

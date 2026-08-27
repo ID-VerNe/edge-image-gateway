@@ -1,9 +1,12 @@
 import { Bindings } from '../types/env';
 
+// In-memory throttle map (per-isolate, resets on cold start)
+const alertThrottleCache = new Map<string, number>();
+
 /**
  * Sends a notification message to a Telegram Bot.
- * Throttled via KV to avoid spamming the same alert.
  */
+// @lat: [[notifications]]
 export const notifyTelegram = async (message: string, env: Bindings, ctx?: any) => {
   const token = env.TELEGRAM_BOT_TOKEN;
   const chatId = env.TELEGRAM_CHAT_ID;
@@ -37,18 +40,17 @@ export const notifyTelegram = async (message: string, env: Bindings, ctx?: any) 
 
 /**
  * Sends an alert only if it hasn't been sent in the last N hours.
+ * Uses in-memory throttle — no KV dependency.
  */
 export const alertThrottled = async (key: string, message: string, env: Bindings, hours: number = 4, ctx?: any) => {
-  if (!env.REPO_REGISTRY) return notifyTelegram(message, env, ctx);
+  const now = Date.now();
+  const lastSent = alertThrottleCache.get(key);
 
-  const kvKey = `alert_sent::${key}`;
-  const lastSent = await env.REPO_REGISTRY.get(kvKey);
-  
   if (lastSent) {
-    const timePassed = Date.now() - parseInt(lastSent, 10);
+    const timePassed = now - lastSent;
     if (timePassed < hours * 60 * 60 * 1000) return;
   }
 
-  await env.REPO_REGISTRY.put(kvKey, Date.now().toString(), { expirationTtl: hours * 3600 });
+  alertThrottleCache.set(key, now);
   await notifyTelegram(message, env, ctx);
 };

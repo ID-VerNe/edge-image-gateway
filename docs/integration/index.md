@@ -34,6 +34,7 @@
 | Python | [Python 接入指南](python.md) |
 | TypeScript / Node.js | [TypeScript 接入指南](typescript.md) |
 | PHP | [PHP 接入指南](php.md) |
+| AI Agent | [AI Agent 接入指南](ai-agent.md) |
 
 ## 工具配置速查
 

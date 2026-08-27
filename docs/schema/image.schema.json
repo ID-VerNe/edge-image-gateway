@@ -1,0 +1,20 @@
+{
+  "module": "image",
+  "version": "1.0.0",
+  "exports": [
+    { "name": "handleImageRequest", "kind": "function", "params": ["c: Context<AppEnvironment>"], "returns": "Promise<Response>" }
+  ],
+  "dependencies": {
+    "internal": ["services/github", "services/repoRouter", "utils/cache", "utils/r2Cache", "utils/logger", "utils/hmac", "utils/mime", "utils/path"],
+    "external": ["hono"]
+  },
+  "consumers": ["index"],
+  "errors": {
+    "INTERNAL_ERROR": { "code": 500, "recovery": "Retry request" },
+    "NOT_FOUND": { "code": 404, "recovery": "Check file path" },
+    "ORIGIN_DENIED": { "code": 403, "recovery": "Check GitHub token permissions" },
+    "ORIGIN_ERROR": { "code": 502, "recovery": "GitHub API unavailable" }
+  },
+  "entryPoints": ["src/routes/image.ts"],
+  "configKeys": ["CACHE_TTL_SECONDS", "APP_TITLE", "APP_DESCRIPTION", "SIGN_SECRET"]
+}

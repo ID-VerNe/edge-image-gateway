@@ -9,14 +9,40 @@ import { syncCapacity } from './services/cron';
 import { logger } from './utils/logger';
 import { alertThrottled } from './utils/notifications';
 
-import { listAllRepos } from './services/repoRouter';
 import { checkConfig } from './utils/configCheck';
 
 import { FAVICON_PNG_BASE64, FAVICON_ICO_BASE64 } from './utils/favicon';
 
+// @lat: [[index]]
 const app = new Hono<AppEnvironment>();
 
-// Serve Favicon
+app.get('/healthz', async (c) => {
+  const cfg = checkConfig(c.env);
+
+  return c.json({
+    ok: cfg.ok,
+    status: cfg.ok ? 'ok' : 'config_error',
+    version: '1.0.0'
+  });
+});
+
+app.use('/*', async (c, next) => {
+  await next();
+  c.header('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
+  c.header('X-Content-Type-Options', 'nosniff');
+  c.header('X-Frame-Options', 'DENY');
+  c.header('Referrer-Policy', 'strict-origin-when-cross-origin');
+  c.header('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
+  // HTML 页面（admin UI）依赖内联脚本与内联事件处理器，且 Cloudflare 会自动注入 Insights 脚本，
+  // 因此仅对 HTML 放宽 script-src；非 HTML 响应保持严格策略
+  const contentType = c.res.headers.get('content-type') || '';
+  if (contentType.includes('text/html')) {
+    c.header('Content-Security-Policy', "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; script-src 'self' 'unsafe-inline' https://static.cloudflareinsights.com; connect-src 'self' https://cloudflareinsights.com");
+  } else {
+    c.header('Content-Security-Policy', "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; script-src 'self'");
+  }
+});
+
 app.get('/favicon.png', (c) => {
   const binary = atob(FAVICON_PNG_BASE64);
   const bytes = new Uint8Array(binary.length);
@@ -24,7 +50,7 @@ app.get('/favicon.png', (c) => {
     bytes[i] = binary.charCodeAt(i);
   }
   c.header('Content-Type', 'image/png');
-  c.header('Cache-Control', 'public, max-age=31536000, immutable');
+  c.header('Cache-Control', 'public, max-age=86400');
   return c.body(bytes);
 });
 
@@ -35,47 +61,14 @@ app.get('/favicon.ico', (c) => {
     bytes[i] = binary.charCodeAt(i);
   }
   c.header('Content-Type', 'image/x-icon');
-  c.header('Cache-Control', 'public, max-age=31536000, immutable');
+  c.header('Cache-Control', 'public, max-age=86400');
   return c.body(bytes);
 });
 
-// Health check (no middleware applied to avoid being blocked)
-app.get('/healthz', async (c) => {
-  const cfg = checkConfig(c.env);
-  
-  let githubRate: Record<string, any> = {};
-  if (c.env.REPO_REGISTRY) {
-    try {
-      const repos = await listAllRepos(c.env);
-      const rates = await Promise.all(repos.map(async (repo) => {
-        const raw = await c.env.REPO_REGISTRY.get(`github_rate::${repo.id}`);
-        return { repo: repo.id, ...(raw ? JSON.parse(raw) : { remaining: null }) };
-      }));
-      githubRate = rates;
-    } catch (e) {
-      console.error('Failed to fetch github rate for healthz:', e);
-    }
-  }
-
-  return c.json({ 
-    ok: true,
-    status: cfg.ok ? 'ok' : 'config_error',
-    version: '1.0.0',
-    config: cfg.ok ? 'valid' : cfg.issues,
-    githubRate,
-    features: {
-      signature: c.env.ENABLE_SIGNATURE === 'true',
-      referer_protection: !!c.env.ALLOWED_REFERERS
-    }
-  });
-});
-
-// Apply global middlewares
 app.use('/*', rateLimitGuard);
 app.use('/*', refererGuard);
 app.use('/*', signatureGuard);
 
-// Global Error Handler
 app.onError((err, c) => {
   const errorId = crypto.randomUUID();
   const isDev = c.env.ENVIRONMENT !== 'production';
@@ -83,20 +76,22 @@ app.onError((err, c) => {
   console.error(`[${errorId}]`, err.stack ?? err);
   logger.captureError(c, err, { path: c.req.path, method: c.req.method, errorId });
 
-  // Telegram Alert for 5xx
   c.executionCtx.waitUntil(alertThrottled('global_500', 
-    `🔥 <b>Critical System Error (500)</b>\nPath: <code>${c.req.path}</code>\nMethod: <b>${c.req.method}</b>\nError ID: <code>${errorId}</code>\nError: <code>${err.message}</code>`,
+    `🔥 <b>Critical System Error (500)</b>\nPath: <code>${c.req.path}</code>\nMethod: <b>${c.req.method}</b>\nError ID: <code>${errorId}</code>`,
     c.env, 1
   ));
 
   const body = isDev
-    ? { error: 'Unhandled Exception', message: err.message, stack: err.stack, errorId }
-    : { error: 'Internal Server Error', errorId };
+    ? { error: 'Unhandled Exception', message: err.message, errorId }
+    : { error: 'Internal Server Error' };
 
   return c.json(body, 500);
 });
 
-// Mount Admin UI and APIs
+app.notFound((c) => {
+  return c.json({ error: 'Not Found' }, 404);
+});
+
 app.use('/admin/api/*', async (c, next) => {
   await next();
   c.header('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
@@ -105,9 +100,9 @@ app.use('/admin/api/*', async (c, next) => {
 });
 app.route('/admin', adminApp);
 
-// Main image routing
 app.get('/*', handleImageRequest);
 
+// @lat: [[index#Scheduled Tasks]]
 export default {
   fetch: app.fetch,
   scheduled: async (event: any, env: AppEnvironment['Bindings'], ctx: any) => {

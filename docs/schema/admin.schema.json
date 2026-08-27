@@ -1,0 +1,14 @@
+{
+  "module": "admin",
+  "version": "1.0.0",
+  "exports": [
+    { "name": "default", "kind": "HonoApp", "params": [], "returns": "Hono<AppEnvironment>" }
+  ],
+  "dependencies": {
+    "internal": ["middleware/adminAuth", "admin-api-files", "admin-api-upload", "admin-api-repos", "admin-api-stats", "admin-api-audit", "admin-api-providers", "admin-api-backfill"],
+    "external": ["hono"]
+  },
+  "consumers": ["index"],
+  "entryPoints": ["src/routes/admin.ts"],
+  "configKeys": ["CF_ZONE_ID", "CF_API_TOKEN", "GITHUB_USER", "GITHUB_REPO", "APP_TITLE"]
+}

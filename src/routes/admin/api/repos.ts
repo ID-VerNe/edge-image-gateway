@@ -51,10 +51,8 @@ repoApi.post('/', async (c) => {
     const createRes = await githubService.createRepository(owner, name, token);
 
     if (!createRes.ok) {
-      const err = await createRes.text();
       return c.json({ 
         error: `Repository "${owner}/${name}" not found and auto-creation failed.`, 
-        details: err,
         suggestion: 'Please create the private repository manually on GitHub or check your Token permissions (needs "repo" scope).' 
       }, 400);
     }
@@ -179,17 +177,21 @@ repoApi.post('/:id/sync', async (c) => {
     const repos = await listAllRepos(c.env, true);
     return c.json({ success: true, fileCount: blobs.length, sizeBytes: totalSize, repos });
   } catch (err: any) {
-    return c.json({ error: 'Sync failed', message: err.message }, 500);
+    return c.json({ error: 'Sync failed' }, 500);
   }
 });
 
 repoApi.delete('/:id', async (c) => {
   const id = c.req.param('id');
+  if (id === 'fallback') return c.json({ error: 'Cannot delete fallback repo' }, 400);
+  
   const allRepos = await listAllRepos(c.env, true);
   const exists = allRepos.some(r => r.id === id);
   if (!exists) return c.json({ error: 'Repo not found' }, 404);
 
   if (c.env.DB) {
+    await c.env.DB.prepare('DELETE FROM paths WHERE repo_id = ?').bind(id).run();
+    await c.env.DB.prepare('DELETE FROM path_providers WHERE repo_id = ?').bind(id).run();
     await c.env.DB.prepare('DELETE FROM repos WHERE id = ?').bind(id).run();
     const currentWrite = await getCurrentWriteId(c.env);
     if (currentWrite === id) {
@@ -213,7 +215,7 @@ repoApi.post('/:id/migrate', async (c) => {
 
   if (!targetRepo) return c.json({ error: 'targetRepo is required' }, 400);
 
-  const jobId = `mig_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+  const jobId = crypto.randomUUID();
   const job: RepoMigrationJob = {
     jobId,
     sourceRepo,
@@ -244,32 +246,12 @@ repoApi.post('/:id/migrate', async (c) => {
 
 repoApi.get('/migrations/:jobId', async (c) => {
   const jobId = c.req.param('jobId');
-  if (!c.env.REPO_REGISTRY) return c.json({ error: 'KV not configured' }, 400);
-  
-  const raw = await c.env.REPO_REGISTRY.get(`repo_migration::${jobId}`);
-  if (!raw) return c.json({ error: 'Migration job not found' }, 404);
-  
-  return c.json(JSON.parse(raw));
+  return c.json({ error: 'Migration job not found' }, 404);
 });
 
 repoApi.post('/migrations/:jobId/resume', async (c) => {
   const jobId = c.req.param('jobId');
-  if (!c.env.REPO_REGISTRY) return c.json({ error: 'KV not configured' }, 400);
-  
-  const raw = await c.env.REPO_REGISTRY.get(`repo_migration::${jobId}`);
-  if (!raw) return c.json({ error: 'Migration job not found' }, 404);
-  
-  const job: RepoMigrationJob = JSON.parse(raw);
-  if (job.status !== 'paused' && job.status !== 'failed') {
-    return c.json({ error: `Cannot resume job in status ${job.status}` }, 400);
-  }
-
-  job.status = 'running';
-  await saveJob(job, c.env);
-
-  c.executionCtx.waitUntil(migrateRepo(job, c.env));
-  
-  return c.json({ success: true, status: 'running' });
+  return c.json({ error: 'Migration job not found' }, 404);
 });
 
 export default repoApi;

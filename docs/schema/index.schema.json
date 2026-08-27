@@ -1,0 +1,15 @@
+{
+  "module": "index",
+  "version": "1.0.0",
+  "exports": [
+    { "name": "default.fetch", "kind": "handler", "params": ["request", "env", "context"], "returns": "Response" },
+    { "name": "default.scheduled", "kind": "handler", "params": ["event", "env", "context"], "returns": "void" }
+  ],
+  "dependencies": {
+    "internal": ["middleware/rateLimit", "middleware/referer", "middleware/signature", "routes/image", "routes/admin", "services/cron"],
+    "external": ["hono"]
+  },
+  "consumers": ["cloudflare-workers"],
+  "entryPoints": ["src/index.ts"],
+  "configKeys": ["ENVIRONMENT", "ENABLE_SIGNATURE", "ALLOWED_REFERERS", "APP_TITLE", "APP_DESCRIPTION"]
+}

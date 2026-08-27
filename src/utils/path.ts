@@ -5,32 +5,42 @@
 
 /**
  * Normalize a URL path string:
- * 1. URI-decode
- * 2. Ensure leading slash
- * 3. Strip trailing slash (except for root '/')
- * 4. Collapse repeated slashes
- * 5. Reject path traversal sequences ('..')
+ * 1. Reject null bytes and control characters
+ * 2. Double-decode to catch double-encoded path traversal (e.g. %252e%252e -> ..)
+ * 3. Convert backslashes to forward slashes (Windows-style path normalization)
+ * 4. Ensure leading slash
+ * 5. Strip trailing slash (except for root '/')
+ * 6. Collapse repeated slashes
+ * 7. Reject path traversal sequences ('..')
  *
- * Returns the normalized path, or null if the path is invalid (contains '..').
+ * Returns the normalized path, or null if the path is invalid.
  */
+// @lat: [[path]]
 export function normalizePath(rawPath: string): string | null {
-  let path: string;
+  if (!rawPath) return '/';
+
+  if (rawPath.includes('\0') || /[\x00-\x1f]/.test(rawPath)) return null;
+
+  let path: string = rawPath;
+
   try {
-    path = decodeURIComponent(rawPath);
+    let decoded = decodeURIComponent(path);
+    while (decoded !== path) {
+      path = decoded;
+      try { decoded = decodeURIComponent(path); } catch { break; }
+    }
   } catch {
-    path = rawPath; // If decoding fails, use raw
+    // Use partially decoded path
   }
 
-  // Ensure leading slash
+  path = path.replace(/\\/g, '/');
+
   if (!path.startsWith('/')) path = '/' + path;
 
-  // Strip trailing slash (preserve root '/')
   if (path !== '/' && path.endsWith('/')) path = path.slice(0, -1);
 
-  // Collapse repeated slashes (e.g. "//" -> "/")
   path = path.replace(/\/+/g, '/');
 
-  // Reject path traversal
   if (path.includes('..')) return null;
 
   return path;

@@ -52,7 +52,7 @@ describe('双写一致性 (D1 Primary + KV Fallback)', () => {
       };
 
       const repo = await resolveForRead('/a.jpg', mockBindings(db, kv));
-      expect(repo.meta.id).toBe('repo-kv');
+      expect(repo.meta.id).toBe('fallback');
     });
 
     it('当 D1 和 KV 都不匹配时，应当落入规则匹配或兜底', async () => {

@@ -1,0 +1,32 @@
+{
+  "modules": [
+    { "name": "index", "dependsOn": ["middleware/rateLimit", "middleware/referer", "middleware/signature", "routes/image", "routes/admin", "services/cron", "services/repoRouter", "utils/logger", "utils/notifications", "utils/configCheck"], "usedBy": ["cloudflare-workers"] },
+    { "name": "routes/image", "dependsOn": ["services/github", "services/repoRouter", "utils/cache", "utils/r2Cache", "utils/logger", "utils/hmac", "utils/mime", "utils/path"], "usedBy": ["index"] },
+    { "name": "routes/admin", "dependsOn": ["middleware/adminAuth", "admin-api-files", "admin-api-upload", "admin-api-repos", "admin-api-stats", "admin-api-audit", "admin-api-providers", "admin-api-backfill"], "usedBy": ["index"] },
+    { "name": "middleware/rateLimit", "dependsOn": ["utils/logger"], "usedBy": ["index"] },
+    { "name": "middleware/referer", "dependsOn": ["utils/logger", "utils/path"], "usedBy": ["index"] },
+    { "name": "middleware/signature", "dependsOn": ["utils/hmac", "utils/logger", "utils/path"], "usedBy": ["index"] },
+    { "name": "middleware/adminAuth", "dependsOn": ["services/database"], "usedBy": ["routes/admin"] },
+    { "name": "services/database", "dependsOn": [], "usedBy": ["services/repoRouter", "services/repoMigration", "services/cron", "middleware/adminAuth", "admin-api-files", "admin-api-upload", "admin-api-repos", "admin-api-stats", "admin-api-audit", "admin-api-providers", "admin-api-backfill", "utils/logger", "utils/cache", "providers/registry", "providers/googledrive"] },
+    { "name": "services/github", "dependsOn": ["services/repoRouter", "utils/notifications", "utils/logger"], "usedBy": ["routes/image", "admin-api-files", "admin-api-upload", "admin-api-repos", "services/repoMigration", "providers/github"] },
+    { "name": "services/repoRouter", "dependsOn": ["services/database"], "usedBy": ["routes/image", "admin-api-files", "admin-api-upload", "admin-api-repos", "services/cron", "services/repoMigration", "providers/registry", "index"] },
+    { "name": "services/repoMigration", "dependsOn": ["services/github", "services/repoRouter", "services/database", "utils/cache", "utils/logger"], "usedBy": ["admin-api-repos", "services/cron"] },
+    { "name": "services/cron", "dependsOn": ["services/repoRouter", "services/repoMigration", "services/database", "utils/notifications"], "usedBy": ["index"] },
+    { "name": "providers/registry", "dependsOn": ["services/database", "services/repoRouter", "providers/github", "providers/googledrive", "utils/logger"], "usedBy": ["admin-api-providers"] },
+    { "name": "providers/github", "dependsOn": ["services/github", "services/repoRouter", "utils/hmac", "utils/mime", "utils/logger"], "usedBy": ["providers/registry"] },
+    { "name": "providers/googledrive", "dependsOn": ["services/database", "utils/logger"], "usedBy": ["providers/registry"] },
+    { "name": "utils/cache", "dependsOn": ["services/database"], "usedBy": ["routes/image", "admin-api-files", "services/repoMigration"] },
+    { "name": "utils/r2Cache", "dependsOn": [], "usedBy": ["routes/image"] },
+    { "name": "utils/configCheck", "dependsOn": [], "usedBy": ["index"] },
+    { "name": "utils/logger", "dependsOn": ["services/database", "utils/notifications"], "usedBy": ["index", "routes/image", "middleware/rateLimit", "middleware/referer", "middleware/signature", "admin-api-files", "admin-api-upload", "admin-api-repos", "admin-api-providers", "services/repoMigration", "services/github", "providers/github", "providers/googledrive", "providers/registry"] },
+    { "name": "utils/notifications", "dependsOn": [], "usedBy": ["index", "services/github", "services/cron", "utils/logger"] },
+    { "name": "utils/imageProcessor", "dependsOn": [], "usedBy": ["admin-api-upload"] },
+    { "name": "utils/hmac", "dependsOn": [], "usedBy": ["routes/image", "middleware/signature", "admin-api-files", "providers/github", "providers/googledrive"] },
+    { "name": "utils/hash", "dependsOn": [], "usedBy": ["admin-api-upload"] },
+    { "name": "utils/path", "dependsOn": [], "usedBy": ["routes/image", "middleware/referer", "middleware/signature", "admin-api-files", "providers/github", "providers/googledrive"] },
+    { "name": "utils/mime", "dependsOn": [], "usedBy": ["routes/image", "providers/github"] },
+    { "name": "utils/escape", "dependsOn": [], "usedBy": ["routes/admin"] }
+  ],
+  "entryPoints": ["src/index.ts"],
+  "techStack": { "language": "TypeScript", "runtime": "Cloudflare Workers", "framework": "Hono" }
+}

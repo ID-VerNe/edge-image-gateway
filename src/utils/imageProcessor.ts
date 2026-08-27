@@ -4,6 +4,7 @@
  * Supports JPEG and PNG.
  */
 
+// @lat: [[imageProcessor]]
 export async function stripMetadata(buffer: ArrayBuffer, mimeType: string): Promise<ArrayBuffer> {
   const uint8 = new Uint8Array(buffer);
   

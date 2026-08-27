@@ -8,13 +8,26 @@ import { generateHMAC } from '../utils/hmac';
 import { recordCacheVariant } from '../utils/cache';
 import { r2Cache } from '../utils/r2Cache';
 import { normalizePath } from '../utils/path';
+import { escapeHtml } from '../utils/escape';
 
+const TRANSFORM_PARAMS = ['w', 'h', 'q', 'fit'];
+
+const buildCacheUrl = (reqUrl: URL): string => {
+  const url = new URL(reqUrl.pathname, reqUrl.origin);
+  for (const k of TRANSFORM_PARAMS) {
+    const v = reqUrl.searchParams.get(k);
+    if (v !== null) url.searchParams.set(k, v);
+  }
+  return url.toString();
+};
+
+// @lat: [[image]]
 export const handleImageRequest = async (c: Context<AppEnvironment>) => {
   const reqUrl = new URL(c.req.url);
   let path = normalizePath(reqUrl.pathname) || '/';
   if (path === '/') {
-    const title = c.env.APP_TITLE || 'Edge Image Gateway';
-    const desc = c.env.APP_DESCRIPTION || 'Ready to serve images.';
+    const title = escapeHtml(c.env.APP_TITLE || 'Edge Image Gateway');
+    const desc = escapeHtml(c.env.APP_DESCRIPTION || 'Ready to serve images.');
     return c.html(`
       <!DOCTYPE html>
       <html>
@@ -98,29 +111,37 @@ export const handleImageRequest = async (c: Context<AppEnvironment>) => {
   }
 
 
-  // 2. Check for Internal Loopback (to bypass resizing proxy header loss)
+  // @lat: [[image#Internal Loopback]]
   const isInternal = reqUrl.searchParams.get('__internal_loopback') === 'true';
   const internalSig = reqUrl.searchParams.get('__sig');
+  const internalExp = reqUrl.searchParams.get('__exp');
   const isImage = /\.(jpg|jpeg|png|webp|avif|gif|svg)$/i.test(path);
 
   if (isInternal && internalSig) {
-    // Verify internal signature to prevent abuse
-    const expectedSig = await generateHMAC(path, c.env.SIGN_SECRET);
-    if (internalSig === expectedSig) {
-      // Only image paths should use loopback; non-image loopbacks are invalid
-      if (!isImage) return c.text('Bad Request', 400);
+    if (!isImage) return c.text('Bad Request', 400);
 
-      // For GitHub API, we need to strip the leading slash
+    let sigValid = false;
+    if (internalExp) {
+      const expTs = parseInt(internalExp, 10);
+      if (!isNaN(expTs) && Date.now() / 1000 < expTs) {
+        const expectedSig = await generateHMAC(`${path}:${internalExp}`, c.env.SIGN_SECRET);
+        sigValid = internalSig === expectedSig;
+      }
+    }
+
+    if (sigValid) {
       const ghPath = path.replace(/^\/+/, '');
       const repo = await resolveForRead(ghPath, c.env, (p) => c.executionCtx.waitUntil(p));
       const resp = await fetchFromGitHub(ghPath, repo, undefined, c.env, c.executionCtx);
       
       const newResp = new Response(resp.body, resp);
-      // STRICT OVERRIDE: Prevent JSON metadata poisoning
       newResp.headers.set('Content-Type', getMimeType(ghPath));
-      newResp.headers.delete('Content-Disposition');
       
-      // De-identify loopback responses too
+      const detectedMime = getMimeType(ghPath);
+      if (detectedMime === 'image/svg+xml') {
+        newResp.headers.set('Content-Disposition', 'attachment; filename="image.svg"');
+      }
+      
       newResp.headers.delete('Server');
       newResp.headers.delete('X-Powered-By');
       newResp.headers.forEach((_, key) => {
@@ -129,17 +150,17 @@ export const handleImageRequest = async (c: Context<AppEnvironment>) => {
 
       return newResp;
     }
+    return c.text('Forbidden', 403);
   }
 
-  // 3. Normal Request Logic
   const width = reqUrl.searchParams.get('w');
   const height = reqUrl.searchParams.get('h');
   const quality = reqUrl.searchParams.get('q');
   const fit = reqUrl.searchParams.get('fit') as any;
   const isResizing = !!(width || height || quality || fit);
 
-  // Determine cache key
-  const cacheKey = new Request(reqUrl.toString(), { method: 'GET' });
+  const cacheUrlStr = buildCacheUrl(reqUrl);
+  const cacheKey = new Request(cacheUrlStr, { method: 'GET' });
   const cache = caches.default;
 
   const startTime = Date.now();
@@ -155,7 +176,6 @@ export const handleImageRequest = async (c: Context<AppEnvironment>) => {
       return newResponse;
     }
 
-    // --- PHASE 2: R2 Cache Check ---
     const r2Key = r2Cache.generateKey(path, reqUrl.searchParams);
     const r2Object = await r2Cache.get(c.env, r2Key);
 
@@ -179,32 +199,69 @@ export const handleImageRequest = async (c: Context<AppEnvironment>) => {
     let repo: ResolvedRepo | null = null;
     const ghPath = path.replace(/^\/+/, '');
 
-    // 4. If resizing is needed, we must use a loopback URL
     if (isImage && isResizing) {
-      const sig = await generateHMAC(path, c.env.SIGN_SECRET);
-      const loopbackUrl = new URL(c.req.url);
-      loopbackUrl.search = ''; 
-      loopbackUrl.searchParams.set('__internal_loopback', 'true');
-      loopbackUrl.searchParams.set('__sig', sig);
+      repo = await resolveForRead(ghPath, c.env, (p) => c.executionCtx.waitUntil(p));
+      const originResp = await fetchFromGitHub(ghPath, repo, undefined, c.env, c.executionCtx);
 
-      const cfOptions: RequestInitCfProperties = {
-        image: {
-          width: width ? parseInt(width, 10) : undefined,
-          height: height ? parseInt(height, 10) : undefined,
-          quality: quality ? parseInt(quality, 10) : undefined,
-          fit: fit || 'cover',
-          format: 'auto' as any,
+      if (originResp.status !== 200) {
+        finalResponse = originResp;
+      } else {
+        const originBytes = new Uint8Array(await originResp.arrayBuffer());
+
+        const resizeUrl = new URL('http://internal/resize');
+        if (width) resizeUrl.searchParams.set('w', width);
+        if (height) resizeUrl.searchParams.set('h', height);
+        if (quality) resizeUrl.searchParams.set('q', quality);
+        if (fit) resizeUrl.searchParams.set('fit', fit);
+
+        try {
+          if (c.env.RESIZE_PHP_URL) {
+            const phpUrl = new URL(c.env.RESIZE_PHP_URL);
+            if (width) phpUrl.searchParams.set('w', width);
+            if (height) phpUrl.searchParams.set('h', height);
+            if (quality) phpUrl.searchParams.set('q', quality);
+            if (fit) phpUrl.searchParams.set('fit', fit);
+            phpUrl.searchParams.set('lossless', '0');
+
+            finalResponse = await fetch(phpUrl.toString(), {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/octet-stream',
+                ...(c.env.RESIZE_API_KEY
+                  ? { 'X-Api-Key': c.env.RESIZE_API_KEY }
+                  : {}),
+              },
+              body: originBytes,
+            });
+          } else {
+            finalResponse = await c.env.IMAGE_RESIZE_WORKER.fetch(resizeUrl.toString(), {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/octet-stream',
+                ...(c.env.RESIZE_API_KEY
+                  ? { 'X-Api-Key': c.env.RESIZE_API_KEY }
+                  : {}),
+              },
+              body: originBytes,
+            });
+          }
+
+          if (!finalResponse.ok) {
+            logger.warn('resize_worker_failed', {
+              path, status: finalResponse.status, backend: c.env.RESIZE_PHP_URL ? 'php' : 'worker',
+            });
+            finalResponse = new Response(originBytes, {
+              status: 200,
+              headers: { 'Content-Type': getMimeType(ghPath) },
+            });
+          }
+        } catch (e: any) {
+          logger.error('resize_worker_error', { path, error: e.message, backend: c.env.RESIZE_PHP_URL ? 'php' : 'worker' });
+          finalResponse = new Response(originBytes, {
+            status: 200,
+            headers: { 'Content-Type': getMimeType(ghPath) },
+          });
         }
-      };
-
-      finalResponse = await fetch(loopbackUrl.toString(), { 
-        headers: { 'Referer': c.req.url },
-        cf: cfOptions 
-      });
-      
-      if (finalResponse.status === 415 || finalResponse.status === 400 || finalResponse.status === 502) {
-        repo = await resolveForRead(ghPath, c.env, (p) => c.executionCtx.waitUntil(p));
-        finalResponse = await fetchFromGitHub(ghPath, repo, undefined, c.env, c.executionCtx);
       }
     } else {
       repo = await resolveForRead(ghPath, c.env, (p) => c.executionCtx.waitUntil(p));
@@ -213,7 +270,6 @@ export const handleImageRequest = async (c: Context<AppEnvironment>) => {
 
     const status = finalResponse.status;
 
-    // Non-200: return minimal response, no caching or body processing
     if (status !== 200) {
       if (status === 404) return c.text('Not Found', 404);
       if (status === 401 || status === 403) return c.text('Forbidden: Origin Access Denied', 403);
@@ -239,7 +295,6 @@ export const handleImageRequest = async (c: Context<AppEnvironment>) => {
 
     let detectedMime = getMimeType(ghPath);
     const currentType = responseHeaders.get('Content-Type');
-    // STRICT OVERRIDE: If origin returned JSON for an image path, force the correct MIME
     if (!currentType || currentType.includes('application/json') || currentType.includes('application/vnd.github') || currentType === 'application/octet-stream') {
       responseHeaders.set('Content-Type', detectedMime);
     } else {
@@ -249,6 +304,10 @@ export const handleImageRequest = async (c: Context<AppEnvironment>) => {
     responseHeaders.set('Cache-Control', `public, max-age=${ttl}, s-maxage=${ttl}, immutable`);
     responseHeaders.set('X-Content-Type-Options', 'nosniff');
     responseHeaders.set('X-Cache', 'MISS');
+    
+    if (detectedMime === 'image/svg+xml') {
+      responseHeaders.set('Content-Disposition', 'attachment; filename="image.svg"');
+    }
 
     let responseBody: any = finalResponse.body;
     if (isImage) {
@@ -271,8 +330,9 @@ export const handleImageRequest = async (c: Context<AppEnvironment>) => {
     });
 
     c.executionCtx.waitUntil(cache.put(cacheKey, outputResponse.clone()));
-    if (reqUrl.search) {
-      c.executionCtx.waitUntil(recordCacheVariant(ghPath, reqUrl.toString(), c.env));
+    const hasTransformParams = TRANSFORM_PARAMS.some(k => reqUrl.searchParams.get(k) !== null);
+    if (hasTransformParams) {
+      c.executionCtx.waitUntil(recordCacheVariant(ghPath, cacheUrlStr, c.env));
     }
 
     const duration = Date.now() - startTime;

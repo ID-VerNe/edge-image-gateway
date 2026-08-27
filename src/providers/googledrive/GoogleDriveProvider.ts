@@ -338,7 +338,7 @@ export class GoogleDriveProvider implements StorageProvider {
     return `/${path}`;
   }
 
-  async getSignedUrl(path: string, expiresInSeconds: number): Promise<string> {
+  async getSignedUrl(path: string, expiresInSeconds: number, secret?: string): Promise<string> {
     const { generateHMAC } = await import('../../utils/hmac');
     const { normalizePathForHMAC } = await import('../../utils/path');
 
@@ -347,8 +347,8 @@ export class GoogleDriveProvider implements StorageProvider {
 
     const exp = Math.floor(Date.now() / 1000) + expiresInSeconds;
     const message = `${normalizedPath}|${exp}`;
-    const sig = await generateHMAC(message, (this.auth as any).constructor.name);
-    // Note: HMAC signing uses SIGN_SECRET env var, which is set on the Worker
+    const hmacSecret = secret || (typeof process !== 'undefined' ? process.env.SIGN_SECRET : '') || 'default_sign_secret';
+    const sig = await generateHMAC(message, hmacSecret);
 
     return `${normalizedPath}?sig=${sig}&exp=${exp}`;
   }
@@ -411,9 +411,10 @@ export class GoogleDriveProvider implements StorageProvider {
 
     // 2. Search Google Drive for existing folder
     const token = await this.auth.getAccessToken();
+    const safeName = name.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
     const searchResp = await fetch(
       `https://www.googleapis.com/drive/v3/files?` +
-      `q=name='${name}'+and+'${parentId}'+in+parents+and+mimeType='application/vnd.google-apps.folder'+and+trashed=false&` +
+      `q=name='${safeName}'+and+'${parentId}'+in+parents+and+mimeType='application/vnd.google-apps.folder'+and+trashed=false&` +
       `fields=files(id)&pageSize=1`,
       { headers: { Authorization: `Bearer ${token}` } }
     );

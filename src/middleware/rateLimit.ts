@@ -7,43 +7,38 @@ const localCache = new Map<string, { count: number; expires: number }>();
 const localBans = new Map<string, number>();
 
 /**
- * Enhanced Rate Limiter (Hybrid: In-memory + KV for Bans)
+ * Enhanced Rate Limiter (In-memory only — no KV dependency)
  * 1. Local IP-based Limit: Uses in-memory Map for efficiency (per isolate).
- * 2. 404 Penalty: If an IP triggers > 20 "404 Not Found" in a minute, block globally via KV.
+ * 2. 404 Penalty: If an IP triggers > 20 "404 Not Found" in a minute, ban in-memory.
  */
+// @lat: [[rateLimit]]
 export const rateLimitGuard = async (c: Context<AppEnvironment>, next: Next) => {
-  const kv = c.env.REPO_REGISTRY;
   const ip = c.req.header('CF-Connecting-IP') || 'unknown';
   const path = c.req.path;
 
-  // Skip rate limiting for system paths
-  if (path === '/healthz' || path.startsWith('/admin')) {
+  // Skip rate limiting only for health check
+  if (path === '/healthz') {
     return await next();
   }
 
+  // Admin API has stricter rate limit to prevent brute force
+  const isAdminApi = path.startsWith('/admin/api');
+  const rateLimit = isAdminApi 
+    ? parseInt((c.env as any).ADMIN_RATE_LIMIT_PER_MIN || '30', 10) 
+    : parseInt(c.env.RATE_LIMIT_PER_MIN || '600', 10);
+
   const now = Date.now();
   const minuteBucket = Math.floor(now / 60000);
-  
-  // 1. Check if explicitly banned (KV check is cached in memory for 1 minute)
-  const banKey = `ban::${ip}`;
+
+  // 1. Check if explicitly banned (in-memory only)
   const localBanExpiry = localBans.get(ip);
   if (localBanExpiry && localBanExpiry > now) {
     return c.text('Forbidden: Temporarily banned.', 403);
   }
 
-  if (kv) {
-    const isBanned = await kv.get(banKey, { cacheTtl: 60 });
-    if (isBanned) {
-      localBans.set(ip, now + 60000);
-      logger.warn('request_blocked_banned_ip', { ip, path });
-      return c.text('Forbidden: Too many 404 errors. Temporarily banned.', 403);
-    }
-  }
-
   // 2. Local Rate Limit Check (In-memory is much cheaper than KV)
-  const rateLimit = parseInt(c.env.RATE_LIMIT_PER_MIN || '600', 10); // Increased default for icon-heavy sites
   const rlKey = `${ip}::${minuteBucket}`;
-  
+
   const record = localCache.get(rlKey);
   if (record && record.expires > now) {
     if (record.count > rateLimit) {
@@ -63,26 +58,21 @@ export const rateLimitGuard = async (c: Context<AppEnvironment>, next: Next) => 
   // 3. Execute Request
   await next();
 
-  // 4. Post-execution: 404 Tracking (Use in-memory first, only write to KV on ban)
+  // @lat: [[rateLimit#404 Tracking]]
+  // 4. Post-execution: 404 Tracking (in-memory only)
   if (c.res.status === 404) {
     const errorKey = `err404::${ip}::${minuteBucket}`;
 
-    // Track in local memory first
     const errorRecord = localCache.get(errorKey);
     const errorCount = errorRecord ? errorRecord.count : 0;
     const newErrorCount = errorCount + 1;
 
     localCache.set(errorKey, { count: newErrorCount, expires: (minuteBucket + 2) * 60000 });
 
-    // Only write to KV if threshold exceeded (reduces KV writes by 95%)
-    if (newErrorCount > 20 && kv) {
-      c.executionCtx.waitUntil((async () => {
-        try {
-          logger.error('404_threshold_exceeded', { ip, count: newErrorCount });
-          await kv.put(banKey, '1', { expirationTtl: 300 });
-          localBans.set(ip, now + 300000);
-        } catch {}
-      })());
+    // Ban in-memory if threshold exceeded
+    if (newErrorCount > 20) {
+      logger.error('404_threshold_exceeded', { ip, count: newErrorCount });
+      localBans.set(ip, now + 300000); // 5 minute ban
     }
   }
 };

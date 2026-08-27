@@ -6,14 +6,28 @@ import { githubService } from '../../../../services/github';
 import { purgeFileCache } from '../../../../utils/cache';
 import { logger } from '../../../../utils/logger';
 import { dbService } from '../../../../services/database';
+import { normalizePath } from '../../../../utils/path';
+import { checkPathPrefix } from '../../../../middleware/adminAuth';
 
 const mutateApi = new Hono<AppEnvironment>();
+
+const MAX_DELETE_BATCH = 50;
+
+const isAdminUser = (c: any): boolean => {
+  const user = c.get('user');
+  return user && !user.email.startsWith('token:');
+};
 
 mutateApi.post('/mkdir', async (c) => {
   try {
     const body = await c.req.json() as any;
     let path = (body.path || '').replace(/^\/+|\/+$/g, '');
     if (!path) return c.json({ error: 'Path is required' }, 400);
+    if (!normalizePath('/' + path)) return c.json({ error: 'Invalid path or path traversal detected' }, 400);
+
+    const tokenInfo = c.get('tokenInfo' as any);
+    const prefixCheck = checkPathPrefix(tokenInfo, path);
+    if (!prefixCheck.ok) return c.json({ error: prefixCheck.error }, 403);
 
     const fullPath = `${path}/.keep`;
     const repo = await resolveForWrite(c.env);
@@ -26,8 +40,7 @@ mutateApi.post('/mkdir', async (c) => {
     );
 
     if (!githubRes.ok) {
-      const errText = await githubRes.text();
-      return c.json({ error: 'GitHub mkdir failed', details: errText }, 500);
+      return c.json({ error: 'Failed to create folder' }, 500);
     }
 
     if (c.env.DB) {
@@ -40,7 +53,7 @@ mutateApi.post('/mkdir', async (c) => {
     return c.json({ success: true, path });
   } catch (err: any) {
     logger.captureError(c, err, { event: 'mkdir_failed' });
-    return c.json({ error: 'Internal mkdir error', message: err.message }, 500);
+    return c.json({ error: 'Failed to create folder' }, 500);
   }
 });
 
@@ -50,10 +63,26 @@ mutateApi.delete('/*', async (c) => {
     let path = decodeURIComponent(reqUrl.pathname.replace('/admin/api/files/', ''));
     path = path.replace(/^\/+|\/+$/g, '');
 
+    if (!normalizePath('/' + path)) {
+      return c.json({ error: 'Invalid path or path traversal detected' }, 400);
+    }
+
+    const tokenInfo = c.get('tokenInfo' as any);
+    const prefixCheck = checkPathPrefix(tokenInfo, path || '/');
+    if (!prefixCheck.ok) return c.json({ error: prefixCheck.error }, 403);
+
     const isDir = c.req.query('type') === 'dir';
+    const confirm = c.req.query('confirm');
     const repo = await resolveForRead(path, c.env);
 
     if (isDir) {
+      if (!path) {
+        return c.json({ error: 'Empty path deletion is not allowed. Specify a directory path.' }, 400);
+      }
+      if (confirm !== 'true') {
+        return c.json({ error: 'Directory deletion requires confirm=true parameter' }, 400);
+      }
+
       const treeData = await githubService.getTree(repo, true);
       if (!treeData) return c.json({ error: 'Failed to fetch repository tree' }, 500);
 
@@ -62,9 +91,18 @@ mutateApi.delete('/*', async (c) => {
         item.type === 'blob' && (item.path === path || item.path.startsWith(prefix))
       );
 
+      if (itemsToDelete.length > MAX_DELETE_BATCH) {
+        return c.json({
+          error: `Too many files to delete (${itemsToDelete.length}). Maximum is ${MAX_DELETE_BATCH} per request.`
+        }, 400);
+      }
+
       let deletedCount = 0;
       let deletedBytes = 0;
       for (const item of itemsToDelete) {
+        const itemPrefixCheck = checkPathPrefix(tokenInfo, item.path);
+        if (!itemPrefixCheck.ok) continue;
+
         const delRes = await githubService.deleteFile(
           item.path,
           repo,
@@ -80,7 +118,7 @@ mutateApi.delete('/*', async (c) => {
       if (deletedCount > 0 && c.env.DB) {
         const batch = [
           c.env.DB.prepare(`UPDATE repos SET used_bytes = MAX(0, used_bytes - ?), file_count = MAX(0, file_count - ?) WHERE id = ?`).bind(deletedBytes, deletedCount, repo.meta.id),
-          ...itemsToDelete.map((item: any) => c.env.DB.prepare(`DELETE FROM paths WHERE path = ?`).bind(item.path))
+          ...itemsToDelete.slice(0, deletedCount).map((item: any) => c.env.DB.prepare(`DELETE FROM paths WHERE path = ?`).bind(item.path))
         ];
         await c.env.DB.batch(batch);
       }
@@ -89,9 +127,8 @@ mutateApi.delete('/*', async (c) => {
       return c.json({ success: true, deletedCount });
     }
 
-    // Single file deletion
     const fileData = await githubService.getFile(path, repo);
-    if (!fileData || Array.isArray(fileData)) return c.json({ error: 'File not found on GitHub' }, 404);
+    if (!fileData || Array.isArray(fileData)) return c.json({ error: 'File not found' }, 404);
 
     const delRes = await githubService.deleteFile(
       path,
@@ -101,22 +138,20 @@ mutateApi.delete('/*', async (c) => {
     );
 
     if (!delRes.ok) {
-      const errText = await delRes.text();
-      return c.json({ error: 'GitHub delete failed', details: errText }, 500);
+      return c.json({ error: 'Failed to delete file' }, 500);
     }
 
     if (c.env.DB) {
       await dbService.recordFileDeletion(c.env.DB, path, repo.meta.id, fileData.size || 0);
     }
 
-    // Granular Cache Purge
     c.executionCtx.waitUntil(purgeFileCache(path, c.env, new URL(c.req.url).origin));
     c.executionCtx.waitUntil(logger.recordAudit(c, 'DELETE_FILE', { path }));
 
     return c.json({ success: true, path });
   } catch (err: any) {
     logger.captureError(c, err, { event: 'delete_failed' });
-    return c.json({ error: 'Internal delete error', message: err.message }, 500);
+    return c.json({ error: 'Failed to delete' }, 500);
   }
 });
 
@@ -131,14 +166,12 @@ export interface MigrationTask {
   fileSize?: number;
   sourceRepoId?: string;
   targetRepoId?: string;
+  createdBy?: string;
 }
 
-const MIGRATION_TIMEOUT_MS = 25_000; // Leave 5s margin for waitUntil 30s limit
+const MIGRATION_TIMEOUT_MS = 25_000;
 const MAX_RETRIES = 3;
 
-/**
- * Simple retry wrapper with exponential backoff for transient failures.
- */
 const retry = async <T>(fn: () => Promise<T>, label: string): Promise<T> => {
   let lastErr: any;
   for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
@@ -147,7 +180,7 @@ const retry = async <T>(fn: () => Promise<T>, label: string): Promise<T> => {
     } catch (e: any) {
       lastErr = e;
       if (attempt < MAX_RETRIES - 1) {
-        const delay = 1000 * Math.pow(2, attempt); // 1s, 2s, 4s
+        const delay = 1000 * Math.pow(2, attempt);
         logger.warn('migration_retry', { label, attempt: attempt + 1, delay, error: e.message });
         await new Promise(r => setTimeout(r, delay));
       }
@@ -156,9 +189,6 @@ const retry = async <T>(fn: () => Promise<T>, label: string): Promise<T> => {
   throw lastErr;
 };
 
-/**
- * Run a promise with a timeout. If the timeout fires first, reject.
- */
 const runWithTimeout = <T>(promise: Promise<T>, ms: number, label: string): Promise<T> => {
   let timer: ReturnType<typeof setTimeout> | undefined;
   const timeout = new Promise<T>((_, reject) => {
@@ -186,7 +216,6 @@ const runMigration = async (taskId: string, c: any) => {
   let task: MigrationTask | null = null;
 
   try {
-    // Load task from D1 (primary)
     task = null;
     if (db) {
       try {
@@ -194,21 +223,12 @@ const runMigration = async (taskId: string, c: any) => {
       } catch (e) { /* fallback below */ }
     }
 
-    // Fallback: load from KV if D1 not available
-    if (!task && c.env.REPO_REGISTRY) {
-      const raw = await c.env.REPO_REGISTRY.get(`migration::${taskId}`, 'json');
-      if (raw) task = raw as MigrationTask;
-    }
-
     if (!task) return;
 
-    // Guarantee non-null for the inner closure (TypeScript can't track the guard through runWithTimeout)
     const t = task!;
 
-    // Wrap the entire migration in a timeout
     await runWithTimeout((async () => {
 
-      // 1. Fetch Source & Copy (PENDING -> COPIED)
       if (t.status === 'pending') {
         const sourceRepo = await retry(() => resolveForRead(t.sourcePath, c.env), 'resolveForRead');
         const sourceData = await retry(async () => {
@@ -239,12 +259,11 @@ const runMigration = async (taskId: string, c: any) => {
         await persistTask(task!);
       }
 
-      // 2. Verify (COPIED -> VERIFIED)
       if (t.status === 'copied') {
         const targetRepo = await retry(() => resolveForRead(t.targetPath, c.env), 'resolveForRead(verify)');
         const targetData = await retry(async () => {
           const data = await githubService.getFile(t.targetPath, targetRepo);
-          if (!data || Array.isArray(data)) throw new Error('Target verification failed: File not found after copy');
+          if (!data || Array.isArray(data)) throw new Error('Target verification failed');
           return data;
         }, 'getFile(verify)');
 
@@ -253,7 +272,6 @@ const runMigration = async (taskId: string, c: any) => {
         await persistTask(task!);
       }
 
-      // 3. Delete Source (VERIFIED -> SRC_DELETED)
       if (t.status === 'verified') {
         const sourceRepo = await retry(() => resolveForRead(t.sourcePath, c.env), 'resolveForRead(delete)');
         const sourceData = await githubService.getFile(t.sourcePath, sourceRepo);
@@ -265,7 +283,7 @@ const runMigration = async (taskId: string, c: any) => {
               sourceData.sha,
               `Delete source after migration ${taskId}`
             );
-            if (!delRes.ok && delRes.status !== 404) throw new Error(`Source deletion failed: ${await delRes.text()}`);
+            if (!delRes.ok && delRes.status !== 404) throw new Error(`Source deletion failed`);
           }, 'deleteFile');
         }
         task!.status = 'src_deleted';
@@ -273,7 +291,6 @@ const runMigration = async (taskId: string, c: any) => {
         await persistTask(task!);
       }
 
-      // 4. Update D1 Stats & Paths (SRC_DELETED -> INDEXED)
       if (t.status === 'src_deleted') {
         const size = t.fileSize || 0;
         if (db && t.targetRepoId && t.sourceRepoId) {
@@ -295,7 +312,6 @@ const runMigration = async (taskId: string, c: any) => {
         await persistTask(task!);
       }
 
-      // 5. Done
       if (t.status === 'indexed') {
         c.executionCtx.waitUntil(purgeFileCache(t.sourcePath, c.env, new URL(c.req.url).origin));
 
@@ -314,13 +330,12 @@ const runMigration = async (taskId: string, c: any) => {
     console.error(`Migration ${taskId} failed:`, err);
     if (db) {
       try {
-        // Preserve sourcePath/targetPath in the failed task for debugging
         const failedTask: MigrationTask = {
           id: taskId,
           sourcePath: task?.sourcePath || '',
           targetPath: task?.targetPath || '',
           status: 'failed',
-          error: err.message,
+          error: 'Migration failed',
           startTime: task?.startTime || Date.now(),
           lastUpdate: Date.now()
         };
@@ -339,26 +354,29 @@ mutateApi.post('/mutate', async (c) => {
 
     if (action === 'rename') {
       if (!path || !newPath) return c.json({ error: 'Source and target paths are required' }, 400);
+      if (!normalizePath('/' + path) || !normalizePath('/' + newPath)) {
+        return c.json({ error: 'Invalid path or path traversal detected' }, 400);
+      }
       if (path === newPath) return c.json({ success: true, taskId: 'noop' });
 
-      const taskId = `ren_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+      const tokenInfo = c.get('tokenInfo' as any);
+      const prefixCheck = checkPathPrefix(tokenInfo, path, newPath);
+      if (!prefixCheck.ok) return c.json({ error: prefixCheck.error }, 403);
+
+      const taskId = crypto.randomUUID();
       const task: MigrationTask = {
         id: taskId,
         sourcePath: path,
         targetPath: newPath,
         status: 'pending',
         startTime: Date.now(),
-        lastUpdate: Date.now()
+        lastUpdate: Date.now(),
+        createdBy: c.get('user')?.email || 'unknown'
       };
 
-      // D1 primary
       if (c.env.DB) {
         await dbService.upsertTask(c.env.DB, task);
         c.executionCtx.waitUntil(runMigration(taskId, c));
-      }
-      // KV mirror for transition compatibility
-      if (c.env.REPO_REGISTRY) {
-        await c.env.REPO_REGISTRY.put(`migration::${taskId}`, JSON.stringify(task), { expirationTtl: 86400 });
       }
 
       return c.json({ success: true, taskId, status: 'pending' });
@@ -367,24 +385,26 @@ mutateApi.post('/mutate', async (c) => {
     return c.json({ error: 'Unsupported action' }, 400);
   } catch (err: any) {
     logger.captureError(c, err, { event: 'mutate_general_failed' });
-    return c.json({ error: 'Mutation failed', message: err.message }, 500);
+    return c.json({ error: 'Operation failed' }, 500);
   }
 });
 
 mutateApi.get('/migrations/:id', async (c) => {
-  // Read from D1 primarily
+  const taskId = c.req.param('id');
+  const tokenInfo = c.get('tokenInfo' as any);
+  const isAdmin = isAdminUser(c);
+
   if (c.env.DB) {
     try {
-      const task = await dbService.getTask(c.env.DB, c.req.param('id'));
-      if (task) return c.json(task);
-    } catch (e) { /* fallback below */ }
-  }
-
-  // Fallback to KV
-  const kv = c.env.REPO_REGISTRY;
-  if (kv) {
-    const task = await kv.get(`migration::${c.req.param('id')}`, 'json');
-    if (task) return c.json(task);
+      const task = await dbService.getTask(c.env.DB, taskId) as MigrationTask | null;
+      if (task) {
+        if (!isAdmin && tokenInfo?.pathPrefix) {
+          const prefixCheck = checkPathPrefix(tokenInfo, task.sourcePath, task.targetPath);
+          if (!prefixCheck.ok) return c.json({ error: 'Access denied' }, 403);
+        }
+        return c.json(task);
+      }
+    } catch (e) { /* ignore */ }
   }
 
   return c.json({ error: 'Task not found' }, 404);
@@ -395,34 +415,38 @@ mutateApi.post('/:path{.+}/move', async (c) => {
     const body = await c.req.json() as any;
     const sourcePath = c.req.param('path');
     const targetDir = (body.targetDir || '').replace(/^\/+|\/+$/g, '');
+    if (!normalizePath('/' + sourcePath) || (targetDir && !normalizePath('/' + targetDir))) {
+      return c.json({ error: 'Invalid path or path traversal detected' }, 400);
+    }
     const fileName = sourcePath.split('/').pop() || '';
     const targetPath = targetDir ? `${targetDir}/${fileName}` : fileName;
 
     if (sourcePath === targetPath) return c.json({ success: true, taskId: 'noop' });
 
-    const taskId = `mov_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+    const tokenInfo = c.get('tokenInfo' as any);
+    const prefixCheck = checkPathPrefix(tokenInfo, sourcePath, targetPath);
+    if (!prefixCheck.ok) return c.json({ error: prefixCheck.error }, 403);
+
+    const taskId = crypto.randomUUID();
     const task: MigrationTask = {
       id: taskId,
       sourcePath,
       targetPath,
       status: 'pending',
       startTime: Date.now(),
-      lastUpdate: Date.now()
+      lastUpdate: Date.now(),
+      createdBy: c.get('user')?.email || 'unknown'
     };
 
-    // D1 primary
     if (c.env.DB) {
       await dbService.upsertTask(c.env.DB, task);
       c.executionCtx.waitUntil(runMigration(taskId, c));
-    }
-    if (c.env.REPO_REGISTRY) {
-      await c.env.REPO_REGISTRY.put(`migration::${taskId}`, JSON.stringify(task), { expirationTtl: 86400 });
     }
 
     return c.json({ success: true, taskId, status: 'pending' });
   } catch (err: any) {
     logger.captureError(c, err, { event: 'move_failed' });
-    return c.json({ error: 'Internal move error', message: err.message }, 500);
+    return c.json({ error: 'Operation failed' }, 500);
   }
 });
 

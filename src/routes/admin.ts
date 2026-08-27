@@ -63,20 +63,20 @@ adminApp.post('/api/cache/purge', async (c) => {
     });
 
     if (!cfRes.ok) {
-      const errText = await cfRes.text();
-      return c.json({ success: false, message: 'Cloudflare API error', details: errText }, 500);
+      return c.json({ success: false, message: 'Cloudflare API error' }, 500);
     }
 
     return c.json({ success: true, message: 'Global cache purge successful' });
   } catch (err: any) {
-    return c.json({ success: false, message: err.message }, 500);
+    return c.json({ success: false, message: 'Cache purge failed' }, 500);
   }
 });
 
 // --- Admin UI Entry Point ---
 
 adminApp.get('/', (c) => {
-  const userEmail = c.req.header('Cf-Access-Authenticated-User-Email') || 'Admin';
+  const user = c.get('user') as any;
+  const userEmail = user?.email || 'Admin';
   const appTitle = c.env.APP_TITLE || 'Edge Image Gateway';
   
   return c.html(`

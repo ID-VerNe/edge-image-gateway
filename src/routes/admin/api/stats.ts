@@ -30,14 +30,23 @@ statsApi.post('/cache/purge', async (c) => {
   return c.json({ success: true, message: 'Cache purge request received (Note: Workers Cache API is colocation-specific)' });
 });
 
+const isAdminUser = (c: any): boolean => {
+  const user = c.get('user');
+  return user && !user.email.startsWith('token:');
+};
+
 statsApi.get('/tokens', async (c) => {
-  // Phase 3: D1 primary
+  if (!isAdminUser(c)) {
+    return c.json({ error: 'Admin access required' }, 403);
+  }
+
   if (c.env.DB) {
     try {
       const { results } = await c.env.DB.prepare(`SELECT token as id, name, permissions, path_prefix as pathPrefix, created_at as createdAt, expires_at as expiresAt, last_used_at as lastUsedAt FROM auth_tokens ORDER BY created_at DESC`).all();
       if (results.length > 0) {
          return c.json(results.map((r: any) => ({
            ...r,
+           id: r.id ? `${r.id.substring(0, 8)}****` : '',
            permissions: r.permissions ? JSON.parse(r.permissions) : ['read', 'write', 'delete']
          })));
       }
@@ -46,30 +55,21 @@ statsApi.get('/tokens', async (c) => {
     }
   }
 
-  // Fallback to KV
-  if (!c.env.REPO_REGISTRY) return c.json([]);
-  const { keys } = await c.env.REPO_REGISTRY.list({ prefix: 'auth::token::' });
-  const tokens = [];
-  for (const key of keys) {
-    const val = await c.env.REPO_REGISTRY.get(key.name, 'json') as any;
-    tokens.push({
-      id: key.name.replace('auth::token::', ''),
-      name: val.name,
-      createdAt: val.createdAt,
-      permissions: val.permissions || ['read', 'write', 'delete'],
-      pathPrefix: val.pathPrefix,
-      expiresAt: val.expiresAt,
-      lastUsedAt: val.lastUsedAt
-    });
-  }
-  return c.json(tokens);
+  return c.json([]);
 });
 
 statsApi.post('/tokens', async (c) => {
+  if (!isAdminUser(c)) {
+    return c.json({ error: 'Admin access required' }, 403);
+  }
+
   const { name, scopes, pathPrefix, expiresInDays } = await c.req.json() as any;
   if (!name) return c.json({ error: 'Token name is required' }, 400);
 
-  const token = `gt_${Math.random().toString(36).slice(2)}${Math.random().toString(36).slice(2)}`;
+  const randomBytes = new Uint8Array(24);
+  crypto.getRandomValues(randomBytes);
+  const tokenHex = Array.from(randomBytes).map(b => b.toString(16).padStart(2, '0')).join('');
+  const token = `gt_${tokenHex}`;
   const now = new Date().toISOString();
   
   let expiresAtStr: string | undefined;
@@ -89,6 +89,10 @@ statsApi.post('/tokens', async (c) => {
 });
 
 statsApi.delete('/tokens/:id', async (c) => {
+  if (!isAdminUser(c)) {
+    return c.json({ error: 'Admin access required' }, 403);
+  }
+
   const id = c.req.param('id');
 
   if (c.env.DB) {

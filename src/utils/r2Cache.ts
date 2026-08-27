@@ -4,20 +4,21 @@ import { Bindings } from '../types/env';
  * R2 Cache Service for Image Variations
  * Purpose: Store processed images to save GitHub API quota and improve performance.
  */
+// @lat: [[r2Cache]]
+const ALLOWED_TRANSFORM_PARAMS = new Set(['w', 'h', 'q', 'fit']);
+
 export const r2Cache = {
-  /**
-   * Generates a deterministic R2 key for a given path and transformation parameters.
-   */
   generateKey(path: string, params: URLSearchParams): string {
-    // 1. Sort parameters to ensure stable keys (w=100&h=100 vs h=100&w=100)
-    const sortedKeys = Array.from(params.keys()).sort();
-    const parts = sortedKeys.map(k => `${k}=${params.get(k)}`);
-    
-    // 2. Prefix with path and join with params
-    // Format: "v1/path/to/img.jpg?fit=cover&h=100&w=100"
-    // We use a version prefix for easy migration if we change the format
+    const parts: string[] = [];
+    for (const k of ALLOWED_TRANSFORM_PARAMS) {
+      const v = params.get(k);
+      if (v !== null) {
+        parts.push(`${k}=${v}`);
+      }
+    }
+    parts.sort();
     const queryStr = parts.length > 0 ? `?${parts.join('&')}` : '';
-    return `v1/${path}${queryStr}`;
+    return `v2/${path}${queryStr}`;
   },
 
   /**

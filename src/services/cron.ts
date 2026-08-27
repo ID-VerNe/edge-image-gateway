@@ -4,6 +4,7 @@ import { alertThrottled } from '../utils/notifications';
 import { RepoMigrationJob, migrateRepo } from './repoMigration';
 import { dbService } from './database';
 
+// @lat: [[cron]]
 export const syncCapacity = async (env: Bindings, ctx?: any) => {
   const repos = await listAllRepos(env);
   const results = [];

@@ -1,6 +1,7 @@
 import { alertThrottled } from './notifications';
 import { dbService } from '../services/database';
 
+// @lat: [[logger]]
 export const logger = {
   info: (event: string, data: Record<string, any>) => {
     console.log(JSON.stringify({ ts: new Date().toISOString(), level: 'info', event, ...data }));

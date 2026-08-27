@@ -14,7 +14,7 @@ auditApi.get('/', async (c) => {
     const logs = await dbService.getAuditLogs(c.env.DB, 50);
     return c.json({ logs });
   } catch (err: any) {
-    return c.json({ error: 'Failed to query audit logs', message: err.message }, 500);
+    return c.json({ error: 'Failed to query audit logs' }, 500);
   }
 });
 

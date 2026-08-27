@@ -34,6 +34,7 @@ export const envSchema = z.object({
   }
 });
 
+// @lat: [[configCheck]]
 export function checkConfig(env: Bindings) {
   const result = envSchema.safeParse(env);
   return result.success

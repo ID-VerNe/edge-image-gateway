@@ -43,7 +43,7 @@ const ensureCache = async (env: Bindings, force: boolean = false) => {
     let readRules: ReadRule[] | null = null;
     let currentWrite: string | null = null;
 
-    // Phase 3: D1 primary
+    // D1 is the only source of truth
     if (env.DB) {
       try {
         repos = await dbService.getAllRepos(env.DB);
@@ -51,18 +51,8 @@ const ensureCache = async (env: Bindings, force: boolean = false) => {
         readRules = rulesStr ? JSON.parse(rulesStr) : null;
         currentWrite = await dbService.getConfig(env.DB, 'route::current_write');
       } catch (e) {
-        console.error('D1 cache load failed, trying KV:', e);
+        console.error('D1 cache load failed:', e);
       }
-    }
-
-    // Fallback to KV if D1 failed or returned nothing (and KV exists)
-    if (repos.length === 0 && env.REPO_REGISTRY) {
-      const { keys } = await env.REPO_REGISTRY.list({ prefix: 'repo::' });
-      const repoPromises = keys.map(key => env.REPO_REGISTRY.get<RepoMeta>(key.name, 'json'));
-      const kvRepos = await Promise.all(repoPromises);
-      repos = kvRepos.filter(Boolean) as RepoMeta[];
-      readRules = await env.REPO_REGISTRY.get<ReadRule[]>('route::read_rules', 'json');
-      currentWrite = await env.REPO_REGISTRY.get('route::current_write');
     }
 
     if (repos.length > 0) {
@@ -106,19 +96,6 @@ export interface PathRecord {
   hash?: string;
 }
 
-const getRepoIdFromRecord = (record: string | null): string | null => {
-  if (!record) return null;
-  if (record.startsWith('{')) {
-    try {
-      const parsed = JSON.parse(record) as PathRecord;
-      return parsed.repoId;
-    } catch {
-      return record;
-    }
-  }
-  return record;
-};
-
 export const invalidateRepoCache = () => {
   lastCacheTime = 0;
   cachedRepos.clear();
@@ -126,26 +103,10 @@ export const invalidateRepoCache = () => {
   cachedCurrentWrite = null;
 };
 
-export const backfillPathIndex = async (path: string, repoId: string, env: Bindings) => {
-  // DISABLED: High KV write cost. Rule-based resolution is fast enough.
-  /*
-  if (!env.REPO_REGISTRY) return;
-  try {
-    // Check again to avoid unnecessary writes if another isolate did it
-    const exists = await env.REPO_REGISTRY.get(`path::${path}`, { cacheTtl: 60 });
-    if (!exists) {
-      await env.REPO_REGISTRY.put(`path::${path}`, JSON.stringify({ repoId }));
-      console.log(`Lazy-indexed path: ${path} -> ${repoId}`);
-    }
-  } catch (err) {
-    console.error('Failed to backfill path index:', err);
-  }
-  */
-};
-
+// @lat: [[repoRouter#Read Resolution Priority]]
 export const resolveForRead = async (
-  path: string, 
-  env: Bindings, 
+  path: string,
+  env: Bindings,
   waitUntil?: (promise: Promise<any>) => void
 ): Promise<ResolvedRepo> => {
   await ensureCache(env);
@@ -154,7 +115,7 @@ export const resolveForRead = async (
     return getFallbackRepo(env);
   }
 
-  // 1. Check exact path in D1 (Phase 3 primary)
+  // 1. Check exact path in D1
   if (env.DB) {
     try {
       const repoId = await dbService.getPathRepoId(env.DB, path);
@@ -163,39 +124,11 @@ export const resolveForRead = async (
         return { meta: repo, token: getTokenFromEnv(env, repo.tokenSecretName) };
       }
     } catch (e) {
-      console.error('d1_read_failed_fallback_to_kv', { path, error: String(e) });
+      console.error('d1_read_failed', { path, error: String(e) });
     }
   }
 
-  // 2. Fallback to KV for exact path mapping (transition phase)
-  if (env.REPO_REGISTRY) {
-    try {
-      const record = await env.REPO_REGISTRY.get(`path::${path}`);
-      const repoId = getRepoIdFromRecord(record);
-      if (repoId && cachedRepos.has(repoId)) {
-        const repo = cachedRepos.get(repoId)!;
-        return { meta: repo, token: getTokenFromEnv(env, repo.tokenSecretName) };
-      }
-    } catch (e) {
-      console.error('kv_read_failed', { path, error: String(e) });
-    }
-
-    // Prefix search in KV
-    if (path) {
-      const normalizedPath = path.endsWith('/') ? path : `${path}/`;
-      const { keys } = await env.REPO_REGISTRY.list({ prefix: `path::${normalizedPath}`, limit: 1 });
-      if (keys.length > 0) {
-        const record = await env.REPO_REGISTRY.get(keys[0].name);
-        const repoId = getRepoIdFromRecord(record);
-        if (repoId && cachedRepos.has(repoId)) {
-          const repo = cachedRepos.get(repoId)!;
-          return { meta: repo, token: getTokenFromEnv(env, repo.tokenSecretName) };
-        }
-      }
-    }
-  }
-
-  // 3. Check read rules
+  // 2. Check read rules
   let matchedRepoId: string | null = null;
   if (cachedReadRules && cachedReadRules.length > 0) {
     const matchPath = path.startsWith('/') ? path : `/${path}`;
@@ -209,12 +142,12 @@ export const resolveForRead = async (
     }
   }
 
-  // 4. Fallback to current write repo
+  // 3. Fallback to current write repo
   if (!matchedRepoId && cachedCurrentWrite && cachedRepos.has(cachedCurrentWrite)) {
     matchedRepoId = cachedCurrentWrite;
   }
 
-  // 5. Final fallback: first available
+  // 4. Final fallback: first available
   if (!matchedRepoId) {
     const firstRepo = cachedRepos.values().next().value as RepoMeta;
     if (firstRepo) matchedRepoId = firstRepo.id;
@@ -222,18 +155,13 @@ export const resolveForRead = async (
 
   if (matchedRepoId && cachedRepos.has(matchedRepoId)) {
     const repo = cachedRepos.get(matchedRepoId)!;
-    
-    // BACKFILL: If we resolved via rules/fallback AND we have waitUntil, index it for next time.
-    if (waitUntil && env.REPO_REGISTRY && path) {
-      waitUntil(backfillPathIndex(path, matchedRepoId, env));
-    }
-
     return { meta: repo, token: getTokenFromEnv(env, repo.tokenSecretName) };
   }
 
   return getFallbackRepo(env);
 };
 
+// @lat: [[repoRouter#Write Resolution]]
 export const resolveForWrite = async (env: Bindings, requiredBytes: number = 0): Promise<ResolvedRepo> => {
   await ensureCache(env);
 
@@ -251,7 +179,7 @@ export const resolveForWrite = async (env: Bindings, requiredBytes: number = 0):
     if (currentRepo.sizeBytes + requiredBytes <= currentRepo.capacityLimitBytes) {
       return { meta: currentRepo, token: getTokenFromEnv(env, currentRepo.tokenSecretName) };
     }
-    
+
     // Current is full, try to find another active one with space
     for (const repo of cachedRepos.values()) {
       if (repo.id !== currentRepo.id && repo.status === 'active' && repo.sizeBytes + requiredBytes <= repo.capacityLimitBytes) {
@@ -299,12 +227,12 @@ export const getRepoById = async (id: string, env: Bindings): Promise<ResolvedRe
   if (id === 'fallback') {
     return getFallbackRepo(env);
   }
-  
+
   if (cachedRepos.has(id)) {
     const repo = cachedRepos.get(id)!;
     return { meta: repo, token: getTokenFromEnv(env, repo.tokenSecretName) };
   }
-  
+
   return null;
 };
 

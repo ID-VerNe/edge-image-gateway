@@ -1,6 +1,6 @@
 import { Context, Next } from 'hono';
 import { AppEnvironment } from '../types/env';
-import { generateHMAC } from '../utils/hmac';
+import { generateHMAC, timingSafeEqual } from '../utils/hmac';
 import { logger } from '../utils/logger';
 import { normalizePathForHMAC } from '../utils/path';
 
@@ -11,6 +11,7 @@ import { normalizePathForHMAC } from '../utils/path';
  * 3. Tiered Path Defense (/private/, /draft/, /raw/ forced signature)
  * 4. HMAC Validation with Expiry
  */
+// @lat: [[signature]]
 export const signatureGuard = async (c: Context<AppEnvironment>, next: Next) => {
   const reqUrl = new URL(c.req.url);
   const path = normalizePathForHMAC(reqUrl.pathname) || '/';
@@ -22,13 +23,17 @@ export const signatureGuard = async (c: Context<AppEnvironment>, next: Next) => 
 
   // 1.5. Whitelist Internal Loopback (Image Resizing)
   // This allows the Worker to fetch itself for resizing purposes.
-  // The __sig must be valid for the path.
+  // The __sig must be valid for the path with expiry.
   const isInternal = reqUrl.searchParams.get('__internal_loopback') === 'true';
   const internalSig = reqUrl.searchParams.get('__sig');
-  if (isInternal && internalSig) {
-    const expectedInternalSig = await generateHMAC(path, c.env.SIGN_SECRET);
-    if (internalSig === expectedInternalSig) {
-      return await next();
+  const internalExp = reqUrl.searchParams.get('__exp');
+  if (isInternal && internalSig && internalExp) {
+    const expTs = parseInt(internalExp, 10);
+    if (!isNaN(expTs) && Date.now() / 1000 < expTs) {
+      const expectedInternalSig = await generateHMAC(`${path}:${internalExp}`, c.env.SIGN_SECRET);
+      if (timingSafeEqual(internalSig, expectedInternalSig)) {
+        return await next();
+      }
     }
   }
 
@@ -59,6 +64,7 @@ export const signatureGuard = async (c: Context<AppEnvironment>, next: Next) => 
   // Note: Empty referer is NOT trusted by default.
   const isTrustedSource = (checkDomain(referer) || checkDomain(origin)) && (fetchDest === 'image' || !fetchDest);
 
+  // @lat: [[signature#Tiered Path Defense]]
   // 4. Tiered Path Defense
   const isStrictPath = path.startsWith('/private/') || path.startsWith('/draft/') || path.startsWith('/raw/');
   const isGlobalSignEnabled = c.env.ENABLE_SIGNATURE === 'true';
@@ -86,6 +92,7 @@ export const signatureGuard = async (c: Context<AppEnvironment>, next: Next) => 
     return await next();
   }
 
+  // @lat: [[signature#HMAC Signature Format]]
   // 6. Signature Validation
   const expNum = parseInt(exp, 10);
   if (isNaN(expNum) || expNum < Math.floor(Date.now() / 1000)) {
@@ -97,8 +104,8 @@ export const signatureGuard = async (c: Context<AppEnvironment>, next: Next) => 
   const message = `${path}|${exp}`;
   const expectedSig = await generateHMAC(message, secret);
 
-  if (sig !== expectedSig) {
-    logger.error('invalid_signature', { path, provided: sig });
+  if (!timingSafeEqual(sig, expectedSig)) {
+    logger.error('invalid_signature', { path, provided: sig.slice(0, 8) + '...' });
     return c.text('Forbidden: Invalid Signature', 403);
   }
 

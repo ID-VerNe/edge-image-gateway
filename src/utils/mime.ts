@@ -23,6 +23,7 @@ const mimeTypes: Record<string, string> = {
   'json': 'application/json'
 };
 
+// @lat: [[mime]]
 export const getMimeType = (filename: string): string => {
   const parts = filename.split('.');
   if (parts.length < 2) return 'application/octet-stream';

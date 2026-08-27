@@ -14,22 +14,23 @@ export interface GitHubItem {
   type: 'file' | 'dir';
 }
 
+// @lat: [[github]]
 export class GitHubService {
   private userAgent = 'cf-worker-edge-image-gateway';
 
   private async request(url: string, repo: ResolvedRepo, options: RequestInit = {}, env?: any, ctx?: any): Promise<Response> {
     const headers = new Headers(options.headers || {});
-    
+
     // Set Auth
     if (!headers.has('Authorization')) {
       headers.set('Authorization', `Bearer ${repo.token}`);
     }
-    
+
     // Set Accept (GitHub specific default if not provided)
     if (!headers.has('Accept')) {
       headers.set('Accept', 'application/vnd.github.v3+json');
     }
-    
+
     // Set User-Agent
     if (!headers.has('User-Agent')) {
       headers.set('User-Agent', this.userAgent);
@@ -37,27 +38,11 @@ export class GitHubService {
 
     const res = await fetch(url, { ...options, headers });
 
-    // Monitor Rate Limit
+    // @lat: [[github#Rate Limit Monitoring]]
+    // Monitor Rate Limit — alert when low, no KV writes
     const remaining = res.headers.get('X-RateLimit-Remaining');
-    const limit = res.headers.get('X-RateLimit-Limit');
-    const reset = res.headers.get('X-RateLimit-Reset');
-    
-    if (remaining && limit && reset && env?.REPO_REGISTRY && repo?.meta?.id) {
-      const rateData = JSON.stringify({
-        remaining: parseInt(remaining, 10),
-        limit: parseInt(limit, 10),
-        reset: parseInt(reset, 10),
-        at: Date.now()
-      });
-      if (ctx && ctx.waitUntil) {
-        ctx.waitUntil(env.REPO_REGISTRY.put(`github_rate::${repo.meta.id}`, rateData));
-      } else {
-        env.REPO_REGISTRY.put(`github_rate::${repo.meta.id}`, rateData).catch(() => {});
-      }
-    }
-
     if (remaining && parseInt(remaining, 10) < 1000 && env) {
-      alertThrottled('gh_rate_limit', 
+      alertThrottled('gh_rate_limit',
         `🛑 <b>GitHub API Rate Limit Warning</b>\nRemaining: <b>${remaining}</b> / ${res.headers.get('X-RateLimit-Limit')}\nReset: ${new Date(parseInt(res.headers.get('X-RateLimit-Reset') || '0', 10) * 1000).toLocaleString()}`,
         env, 2, ctx
       );
@@ -73,10 +58,10 @@ export class GitHubService {
   async fetchRaw(path: string, repo: ResolvedRepo, cfOptions?: RequestInitCfProperties, env?: any, ctx?: any): Promise<Response> {
     const encodedPath = this.encodePath(path);
     const url = `https://api.github.com/repos/${repo.meta.owner}/${repo.meta.name}/contents/${encodedPath}?ref=${repo.meta.branch}`;
-    return this.request(url, repo, { 
-      method: 'GET', 
+    return this.request(url, repo, {
+      method: 'GET',
       headers: { 'Accept': 'application/vnd.github.v3.raw' },
-      cf: cfOptions 
+      cf: cfOptions
     }, env, ctx);
   }
 

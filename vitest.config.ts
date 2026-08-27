@@ -7,4 +7,8 @@ export default defineConfig({
       wrangler: { configPath: './wrangler.toml' },
     }),
   ],
+  test: {
+    include: ['tests/**/*.spec.ts', 'tests/**/*.test.ts'],
+    exclude: ['node_modules', '.glue', '.wrangler', 'dist'],
+  },
 });

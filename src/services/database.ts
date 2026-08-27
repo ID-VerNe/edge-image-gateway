@@ -6,6 +6,7 @@ import { ProviderConfig } from '../providers/types';
  * Service for interacting with Cloudflare D1 SQL database.
  * Supports transactions and relative updates for consistency.
  */
+// @lat: [[database]]
 export const dbService = {
   /**
    * Upsert a repository record (Idempotent for dual-write/backfill).
@@ -39,6 +40,7 @@ export const dbService = {
   /**
    * Atomic capacity update and path insertion (Dual-write mutation).
    */
+  // @lat: [[database#Atomic File Addition]]
   recordFileAddition: async (db: D1Database, path: string, repoId: string, sizeBytes: number, hash?: string) => {
     const batch = [
       // 1. Update repo stats (Relative update to prevent race conditions)
@@ -64,6 +66,7 @@ export const dbService = {
   /**
    * Atomic capacity update and path deletion.
    */
+  // @lat: [[database#Atomic File Deletion]]
   recordFileDeletion: async (db: D1Database, path: string, repoId: string, sizeBytes: number) => {
     const batch = [
       db.prepare(`

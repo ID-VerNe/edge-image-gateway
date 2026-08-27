@@ -21,7 +21,7 @@ providersApi.get('/', async (c) => {
     const currentWriteId = registry.getCurrentWriteId();
     return c.json({ providers, currentWriteId });
   } catch (err: any) {
-    return c.json({ error: 'Failed to query providers', message: err.message }, 500);
+    return c.json({ error: 'Failed to query providers' }, 500);
   }
 });
 
@@ -72,7 +72,7 @@ providersApi.post('/', async (c) => {
 
     return c.json({ success: true, provider });
   } catch (err: any) {
-    return c.json({ error: 'Failed to create provider', message: err.message }, 500);
+    return c.json({ error: 'Failed to create provider' }, 500);
   }
 });
 
@@ -111,7 +111,7 @@ providersApi.put('/:id', async (c) => {
 
     return c.json({ success: true, provider: updated });
   } catch (err: any) {
-    return c.json({ error: 'Failed to update provider', message: err.message }, 500);
+    return c.json({ error: 'Failed to update provider' }, 500);
   }
 });
 
@@ -127,14 +127,15 @@ providersApi.delete('/:id', async (c) => {
     const id = c.req.param('id');
 
     // Check if provider has any files
-    const { results } = await c.env.DB.prepare(
+    const row: any = await c.env.DB.prepare(
       `SELECT COUNT(*) as count FROM path_providers WHERE provider_id = ?`
-    ).bind(id).first() as any;
+    ).bind(id).first();
 
-    if (results && results.count > 0) {
+    const fileCount = row ? Number(row.count) : 0;
+    if (fileCount > 0) {
       return c.json({
         error: 'Cannot delete provider with existing files',
-        details: `Provider has ${results.count} files. Migrate or delete them first.`,
+        details: `Provider has ${fileCount} files. Migrate or delete them first.`,
       }, 409);
     }
 
@@ -145,7 +146,7 @@ providersApi.delete('/:id', async (c) => {
 
     return c.json({ success: true, message: `Provider "${id}" deleted` });
   } catch (err: any) {
-    return c.json({ error: 'Failed to delete provider', message: err.message }, 500);
+    return c.json({ error: 'Failed to delete provider' }, 500);
   }
 });
 
@@ -172,7 +173,7 @@ providersApi.post('/:id/route/write', async (c) => {
 
     return c.json({ success: true, currentWriteId: id });
   } catch (err: any) {
-    return c.json({ error: 'Failed to set write provider', message: err.message }, 500);
+    return c.json({ error: 'Failed to set write provider' }, 500);
   }
 });
 

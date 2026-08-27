@@ -4,6 +4,7 @@ import { Bindings } from '../types/env';
  * Records a cached image variant URL for future granular purge.
  * Stores the mapping in the dedicated cache_variants table.
  */
+// @lat: [[cache]]
 export const recordCacheVariant = async (path: string, url: string, env: Bindings) => {
   if (!env.DB) return;
   try {
@@ -21,6 +22,7 @@ export const recordCacheVariant = async (path: string, url: string, env: Binding
  * 2. All known variant URLs from Edge Cache (queried from D1)
  * 3. All R2 objects with the path prefix
  */
+// @lat: [[cache#Granular Purge]]
 export const purgeFileCache = async (path: string, env: Bindings, origin: string) => {
   const cache = caches.default;
 
@@ -52,16 +54,26 @@ export const purgeFileCache = async (path: string, env: Bindings, origin: string
 
   // 3. Delete from R2 by prefix (all stored variants)
   if (env.CACHE_BUCKET) {
-    const r2Prefix = `v1/${path}?`;
+    const r2Prefix = `v2/${path}?`;
     try {
       const objects = await env.CACHE_BUCKET.list({ prefix: r2Prefix });
       if (objects.objects.length > 0) {
         await env.CACHE_BUCKET.delete(objects.objects.map(o => o.key));
       }
-      // Also delete the base key (without query params)
-      const baseKey = `v1/${path}`;
+      const v1Prefix = `v1/${path}?`;
+      try {
+        const v1Objects = await env.CACHE_BUCKET.list({ prefix: v1Prefix });
+        if (v1Objects.objects.length > 0) {
+          await env.CACHE_BUCKET.delete(v1Objects.objects.map(o => o.key));
+        }
+      } catch { /* best-effort cleanup of old v1 keys */ }
+      const baseKey = `v2/${path}`;
       try {
         await env.CACHE_BUCKET.delete(baseKey);
+      } catch { /* best-effort */ }
+      const v1BaseKey = `v1/${path}`;
+      try {
+        await env.CACHE_BUCKET.delete(v1BaseKey);
       } catch { /* best-effort */ }
     } catch (err) {
       console.error('Failed to purge R2 variants:', err);
